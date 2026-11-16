@@ -2,11 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ProjectCommand } from '@/lib/planner/commands'
-import { createEmptyProject, createExampleProject } from '@/lib/planner/fixtures'
+import { createBathroomExampleProject, createEmptyProject, createExampleProject } from '@/lib/planner/fixtures'
 import { commitCommand, createHistory, redo as historyRedo, undo as historyUndo, type HistoryState } from '@/lib/planner/history'
 import { defaultPreferences, type PlannerPreferences } from '@/lib/planner/preferences'
 import { useProjectPersistence, type SaveState } from './use-project-persistence'
-import type { Layout, LayoutId, Locale, Project, Result } from '@/lib/planner/types'
+import { getPrimaryRoom, layoutEntityIds } from '@/lib/planner/layout-access'
+import type { Layout, LayoutId, Locale, Project, Result, RoomType } from '@/lib/planner/types'
 
 type PlannerContextValue = {
   project: Project
@@ -20,6 +21,9 @@ type PlannerContextValue = {
   saveState: SaveState
   savedProjectAvailable: boolean
   errorKey: string | null
+  /** True until dismissed when the open project was upgraded from an earlier version's saved data. */
+  upgradedFromV1: boolean
+  dismissUpgradeNotice(): void
   saveNow(): boolean
   downloadProject(): boolean
   downloadCorruptRaw(): void
@@ -29,7 +33,7 @@ type PlannerContextValue = {
   redo(): void
   replaceProject(project: Project): void
   beginNewProject(project: Project): void
-  openExample(): void
+  openExample(roomType?: RoomType): void
   setActiveLayout(id: LayoutId): void
   setSelection(id: string | null): void
   setLocale(locale: Locale): void
@@ -92,14 +96,14 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   }, [allowOverwrite])
 
   const beginNewProject = useCallback((next: Project) => replaceProject(next), [replaceProject])
-  const openExample = useCallback(() => replaceProject(createExampleProject(new Date().toISOString(), locale)), [locale, replaceProject])
+  const openExample = useCallback((roomType: RoomType = 'living') => replaceProject((roomType === 'bathroom' ? createBathroomExampleProject : createExampleProject)(new Date().toISOString(), locale)), [locale, replaceProject])
   const undo = useCallback(() => setHistory((state) => historyUndo(state, new Date().toISOString())), [])
   const redo = useCallback(() => setHistory((state) => historyRedo(state, new Date().toISOString())), [])
   const setActiveLayout = (id: LayoutId) => {
     if (id === 'proposed' && !project.proposed) return
     setActiveLayoutIdState(id)
-    if (!((id === 'current' ? project.current : project.proposed)?.items.some((item) => item.id === selectionId)
-      || (id === 'current' ? project.current : project.proposed)?.openings.some((item) => item.id === selectionId))) setSelectionId(null)
+    const target = id === 'current' ? project.current : project.proposed
+    if (!selectionId || !target || !layoutEntityIds(target).has(selectionId)) setSelectionId(null)
     if (id !== 'current') setEditingCurrent(false)
     persistence.savePreferenceValues({ ...persistence.preferences, activeLayoutId: id })
   }
@@ -116,6 +120,7 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const value: PlannerContextValue = {
     project, activeLayoutId, activeLayout, locale, mode, selectionId, editingCurrent, history,
     saveState: persistence.saveState, savedProjectAvailable: persistence.savedProjectAvailable, errorKey: persistence.errorKey,
+    upgradedFromV1: persistence.upgradedFromV1, dismissUpgradeNotice: persistence.dismissUpgradeNotice,
     saveNow: persistence.saveNow, downloadProject: persistence.downloadProject, downloadCorruptRaw: persistence.downloadCorruptRaw, replaceFromStorage: persistence.replaceFromStorage,
     commit, undo, redo,
     replaceProject, beginNewProject, openExample, setActiveLayout, setSelection: setSelectionId,
@@ -131,11 +136,12 @@ export function usePlanner(): PlannerContextValue {
   return context
 }
 
-export function newProjectDraft(title: string, room: { widthMm: number; depthMm: number; heightMm: number }, now: string): Project {
-  const project = createEmptyProject(`project-${crypto.randomUUID()}`, now)
+export function newProjectDraft(title: string, room: { widthMm: number; depthMm: number; heightMm: number }, now: string, roomType: RoomType = 'living'): Project {
+  const project = createEmptyProject(`project-${crypto.randomUUID()}`, now, roomType)
   project.title = title
-  project.current.room.width.valueMm = room.widthMm
-  project.current.room.depth.valueMm = room.depthMm
-  project.current.room.height.valueMm = room.heightMm
+  const space = getPrimaryRoom(project.current)
+  space.shape.width.valueMm = room.widthMm
+  space.shape.depth.valueMm = room.depthMm
+  space.height.valueMm = room.heightMm
   return project
 }

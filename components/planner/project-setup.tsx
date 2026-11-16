@@ -6,12 +6,15 @@ import { Input } from '@/components/ui/input'
 import { t } from '@/lib/planner/i18n'
 import { parseLength } from '@/lib/planner/units'
 import { parseBahtAmount } from '@/lib/planner/recommendations'
+import { PROVINCES } from '@/lib/planner/standards/provinces'
+import type { RoomType } from '@/lib/planner/types'
 import { newProjectDraft, usePlanner } from './planner-provider'
 
 export function ProjectSetup({ onBack, onCreated }: { onBack: () => void; onCreated(): void }) {
   const { locale, beginNewProject } = usePlanner()
   const [title, setTitle] = useState(locale === 'th' ? 'โครงการปรับห้องนั่งเล่น' : 'Living room adaptation')
-  const [province, setProvince] = useState('')
+  const [provinceCode, setProvinceCode] = useState('')
+  const [roomType, setRoomType] = useState<RoomType>('living')
   const [width, setWidth] = useState('6')
   const [depth, setDepth] = useState('5')
   const [height, setHeight] = useState('2.7')
@@ -38,8 +41,10 @@ export function ProjectSetup({ onBack, onCreated }: { onBack: () => void; onCrea
     const now = new Date().toISOString()
     const project = newProjectDraft(title.trim() || t(locale, 'projectCreated'), {
       widthMm: dimensions[0], depthMm: dimensions[1], heightMm: dimensions[2],
-    }, now)
-    project.household.province = province.trim()
+    }, now, roomType)
+    const province = PROVINCES.find((entry) => entry.code === provinceCode)
+    project.household.province = province ? province[locale] : ''
+    project.household.provinceCode = province ? province.code : null
     project.household.activities = activity.trim() ? [activity.trim()] : []
     project.household.mobilityAids = aids
     project.household.concerns = concerns as typeof project.household.concerns
@@ -57,6 +62,14 @@ export function ProjectSetup({ onBack, onCreated }: { onBack: () => void; onCrea
     onCreated()
   }
 
+  // Switching room type swaps in that room's typical starting size and title; the user can still change both.
+  function changeRoomType(next: RoomType) {
+    setRoomType(next)
+    const size = next === 'bathroom' ? ['2', '1.8', '2.5'] : ['6', '5', '2.7']
+    setWidth(size[0]); setDepth(size[1]); setHeight(size[2])
+    setTitle(t(locale, next === 'bathroom' ? 'defaultTitleBathroom' : 'defaultTitleLiving'))
+  }
+
   const aidsOptions = locale === 'th' ? ['ไม้เท้า', 'รถช่วยเดิน', 'รถเข็น'] : ['Cane', 'Walker', 'Wheelchair']
   const concernOptions = [
     ['lighting', locale === 'th' ? 'แสงสว่าง' : 'Lighting'], ['reach', locale === 'th' ? 'การเอื้อมหยิบ' : 'Reach'],
@@ -69,7 +82,8 @@ export function ProjectSetup({ onBack, onCreated }: { onBack: () => void; onCrea
       <form className="setup-card" onSubmit={submit}>
         <div className="setup-heading"><span className="brand-mark">บ</span><div><p className="eyebrow">{t(locale, 'brand')}</p><h1>{t(locale, 'newProject')}</h1></div></div>
         <label>{t(locale, 'projectTitle')}<Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required /></label>
-        <label>{t(locale, 'province')}<Input value={province} onChange={(event) => setProvince(event.target.value)} maxLength={160} /></label>
+        <label>{t(locale, 'province')}<select className="setup-select" value={provinceCode} onChange={(event) => setProvinceCode(event.target.value)}><option value="">{t(locale, 'provinceNone')}</option>{[...PROVINCES].sort((a, b) => a[locale].localeCompare(b[locale], locale)).map((entry) => <option key={entry.code} value={entry.code}>{entry[locale]}</option>)}</select></label>
+        <label>{t(locale, 'roomType')}<select className="setup-select" value={roomType} onChange={(event) => changeRoomType(event.target.value as RoomType)}><option value="living">{t(locale, 'roomLiving')}</option><option value="bathroom">{t(locale, 'roomBathroom')}</option></select></label>
         <fieldset><legend>{t(locale, 'roomSize')}</legend><div className="setup-grid">
           <label>{t(locale, 'widthM')}<Input inputMode="decimal" value={width} onChange={(event) => setWidth(event.target.value)} /></label>
           <label>{t(locale, 'depthM')}<Input inputMode="decimal" value={depth} onChange={(event) => setDepth(event.target.value)} /></label>

@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { decodeProject, MAX_PROJECT_FILE_BYTES } from '@/lib/planner/project-files'
+import { hasHealthData } from '@/lib/planner/exports/report-data'
 import { t } from '@/lib/planner/i18n'
 import { usePlanner } from './planner-provider'
 
@@ -32,7 +33,11 @@ export function ProjectMenu() {
       <DropdownMenuTrigger render={<Button type="button" variant="outline" aria-label={t(planner.locale, 'projectFiles')}>{t(planner.locale, 'projectFiles')}</Button>} />
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => { const okay = planner.saveNow(); if (okay) setMessage(t(planner.locale, 'saved')) }}>{t(planner.locale, 'saveProject')}</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => { if (!planner.downloadProject()) setMessage(t(planner.locale, 'downloadFailed')) }}>{t(planner.locale, 'exportProject')}</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => {
+          // The file holds everything in the project, including the resident's body and fall data.
+          if (hasHealthData(planner.project) && !window.confirm(t(planner.locale, 'healthDataWarning'))) return
+          if (!planner.downloadProject()) setMessage(t(planner.locale, 'downloadFailed'))
+        }}>{t(planner.locale, 'exportProject')}</DropdownMenuItem>
         <DropdownMenuItem onClick={() => fileInput.current?.click()}>{t(planner.locale, 'importProject')}</DropdownMenuItem>
         {planner.saveState === 'conflict' && <DropdownMenuItem onClick={() => { if (!planner.replaceFromStorage()) setMessage(t(planner.locale, 'storageConflict')) }}>{localeText(planner.locale)}</DropdownMenuItem>}
         {planner.saveState === 'error' && <DropdownMenuItem onClick={planner.downloadProject}>{t(planner.locale, 'saveError')}</DropdownMenuItem>}

@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  AmbientLight,
   Color,
   DirectionalLight,
+  HemisphereLight,
   PCFShadowMap,
   Raycaster,
   Scene,
@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { t } from '@/lib/planner/i18n'
 import { buildRoomScene } from '@/lib/planner/scene/build-scene'
 import { createRoomCamera } from '@/lib/planner/scene/camera'
+import { getPrimaryRoom } from '@/lib/planner/layout-access'
 import type { Layout, Locale } from '@/lib/planner/types'
 
 export type SceneHandle = { capturePng(): Promise<Blob>; resetCamera(): void }
@@ -56,12 +57,21 @@ function markSelection(scene: Scene, selectionId: string | null) {
   })
 }
 
+/** The default camera looks in from the south-east, so those two walls are the ones in the way. */
+function applyNearWallVisibility(scene: Scene, hidden: boolean) {
+  scene.traverse((object) => {
+    const near = object.name === 'wall-east' || object.name === 'wall-south' || object.userData.wall === 'east' || object.userData.wall === 'south'
+    if (near) object.visible = !hidden
+  })
+}
+
 export function RoomView3D({ layout, locale, selectionId, onSelect, onReady, onUnavailable }: RoomView3DProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<SceneHandle | null>(null)
   const sceneRef = useRef<Scene | null>(null)
   const renderRef = useRef<(() => void) | null>(null)
-  const [hideNearWalls, setHideNearWalls] = useState(false)
+  const [hideNearWalls, setHideNearWalls] = useState(true)
+  const hideNearWallsRef = useRef(hideNearWalls)
 
   useEffect(() => {
     const host = hostRef.current
@@ -76,18 +86,34 @@ export function RoomView3D({ layout, locale, selectionId, onSelect, onReady, onU
 
     try {
       scene = new Scene()
-      scene.background = new Color(0xe8e7df)
+      scene.background = new Color(0xe9e9e3)
       sceneRef.current = scene
-      scene.add(new AmbientLight(0xfff4df, 1.65))
-      const sun = new DirectionalLight(0xffedd2, 2.2)
-      sun.position.set(-3, 8, 5)
+      const space = getPrimaryRoom(layout)
+      const roomWidth = space.shape.width.valueMm / 1000
+      const roomDepth = space.shape.depth.valueMm / 1000
+      const roomHeight = space.height.valueMm / 1000
+      scene.add(new HemisphereLight(0xffffff, 0xf0e9dd, 1.55))
+      // The sun comes from the open (camera) side so the cutaway room is lit and shadows fall toward the back walls.
+      const sun = new DirectionalLight(0xfff1dc, 2.5)
+      const reach = Math.max(roomWidth, roomDepth)
+      sun.position.set(roomWidth / 2 + reach * 0.5, roomHeight + reach * 0.9, roomDepth / 2 + reach * 0.75)
+      sun.target.position.set(roomWidth / 2, 0, roomDepth / 2)
       sun.castShadow = true
-      sun.shadow.mapSize.set(1024, 1024)
-      sun.shadow.bias = -0.0003
-      sun.shadow.normalBias = 0.02
+      sun.shadow.mapSize.set(2048, 2048)
+      sun.shadow.camera.left = -reach
+      sun.shadow.camera.right = reach
+      sun.shadow.camera.top = reach
+      sun.shadow.camera.bottom = -reach
+      sun.shadow.camera.near = 0.5
+      sun.shadow.camera.far = reach * 4 + roomHeight
+      sun.shadow.camera.updateProjectionMatrix()
+      sun.shadow.bias = -0.0004
+      sun.shadow.normalBias = 0.03
       scene.add(sun)
+      scene.add(sun.target)
       const room = buildRoomScene(layout)
       scene.add(room)
+      applyNearWallVisibility(scene, hideNearWallsRef.current)
 
       renderer = new WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'low-power', preserveDrawingBuffer: true })
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
@@ -100,13 +126,13 @@ export function RoomView3D({ layout, locale, selectionId, onSelect, onReady, onU
       host.appendChild(renderer.domElement)
 
       const bounds = host.getBoundingClientRect()
-      const camera = createRoomCamera(layout.room, Math.max(0.1, bounds.width / Math.max(1, bounds.height)))
+      const camera = createRoomCamera(space, Math.max(0.1, bounds.width / Math.max(1, bounds.height)))
       controls = new OrbitControls(camera, renderer.domElement)
       controls.enableDamping = false
       controls.minDistance = 2
       controls.maxDistance = 24
       controls.maxPolarAngle = Math.PI * 0.49
-      controls.target.set(layout.room.width.valueMm / 2000, layout.room.height.valueMm / 2200, layout.room.depth.valueMm / 2000)
+      controls.target.set(roomWidth / 2, space.height.valueMm / 2200, roomDepth / 2)
       controls.update()
       controls.saveState()
 
@@ -220,11 +246,9 @@ export function RoomView3D({ layout, locale, selectionId, onSelect, onReady, onU
   }, [selectionId, layout])
 
   useEffect(() => {
+    hideNearWallsRef.current = hideNearWalls
     if (!sceneRef.current) return
-    sceneRef.current.traverse((object) => {
-      if (object.name !== 'wall-east' && object.name !== 'wall-south') return
-      object.visible = !hideNearWalls
-    })
+    applyNearWallVisibility(sceneRef.current, hideNearWalls)
     renderRef.current?.()
   }, [hideNearWalls, layout])
 

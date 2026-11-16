@@ -1,0 +1,19 @@
+{
+  "version": "2026.10",
+  "note": "No price has been collected yet. Every entry is null until real completed jobs are gathered with docs/data/price-collection-template.csv and imported with scripts/import-prices.mjs. Never fill these in with guesses.",
+  "prices": [
+    { "priceKey": "threshold-remove", "unit": "per-door", "label": { "th": "รื้อธรณีประตูและปรับระดับพื้น", "en": "Remove threshold and level floor" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "threshold-bevel", "unit": "per-door", "label": { "th": "แผ่นลาดเอียงธรณีประตู", "en": "Threshold bevel strip" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "door-sliding", "unit": "per-door", "label": { "th": "เปลี่ยนเป็นประตูบานเลื่อน", "en": "Convert to sliding door" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "door-rehang-out", "unit": "per-door", "label": { "th": "กลับบานประตูให้เปิดออก", "en": "Rehang door outward" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "door-widen", "unit": "per-door", "label": { "th": "ขยายช่องประตู", "en": "Widen doorway" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "lever-handle", "unit": "per-door", "label": { "th": "มือจับแบบก้านบิด", "en": "Lever handle" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "raised-toilet-seat", "unit": "per-item", "label": { "th": "ที่นั่งเสริมความสูงโถส้วม", "en": "Raised toilet seat" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "replace-seated-toilet", "unit": "per-item", "label": { "th": "เปลี่ยนเป็นโถส้วมนั่งราบ", "en": "Replace with sit-down toilet" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "grab-bar-horizontal", "unit": "per-item", "label": { "th": "ราวจับแนวนอน", "en": "Horizontal grab bar" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "grab-bar-fold-down", "unit": "per-item", "label": { "th": "ราวจับแบบพับได้", "en": "Fold-down grab bar" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "basin-height", "unit": "per-item", "label": { "th": "ปรับความสูงอ่างล้างมือ", "en": "Adjust basin height" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "anti-slip-floor", "unit": "per-m2", "label": { "th": "ทำพื้นกันลื่น", "en": "Anti-slip floor treatment" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 },
+    { "priceKey": "fixture-relocate", "unit": "per-item", "label": { "th": "ย้ายสวิตช์ เต้ารับ หรือชั้นวาง", "en": "Relocate a switch, socket or shelf" }, "national": null, "regions": {}, "sourceNote": "Price collection pending", "collectedAt": null, "sampleSize": 0 }
+  ]
+}

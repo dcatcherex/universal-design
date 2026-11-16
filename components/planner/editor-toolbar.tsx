@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/button'
 import { t } from '@/lib/planner/i18n'
 import { usePlanner } from './planner-provider'
 
-export function EditorToolbar({ onHome, view, onViewChange, viewUnavailable }: { onHome(): void; view: '2d' | '3d'; onViewChange(view: '2d' | '3d'): void; viewUnavailable: boolean }) {
+export type WorkspaceView = '2d' | 'wall' | '3d'
+
+export function EditorToolbar({ onHome, view, onViewChange, viewUnavailable }: { onHome(): void; view: WorkspaceView; onViewChange(view: WorkspaceView): void; viewUnavailable: boolean }) {
   const planner = usePlanner()
   const { locale, activeLayoutId, project } = planner
   const proposalExists = !!project.proposed
@@ -26,6 +28,7 @@ export function EditorToolbar({ onHome, view, onViewChange, viewUnavailable }: {
       <Button type="button" variant="outline" aria-label={t(locale, 'redo')} title={t(locale, 'redo')} disabled={!planner.history.future.length} onClick={planner.redo}>↷ <span>{t(locale, 'redo')}</span></Button>
       <div className="view-switch" role="group" aria-label={locale === 'th' ? 'มุมมองแผนผัง' : 'Plan view'}>
         <Button type="button" variant={view === '2d' ? 'secondary' : 'ghost'} aria-pressed={view === '2d'} onClick={() => onViewChange('2d')}>{t(locale, 'view2d')}</Button>
+        <Button type="button" variant={view === 'wall' ? 'secondary' : 'ghost'} aria-pressed={view === 'wall'} onClick={() => onViewChange('wall')}>{t(locale, 'wallView')}</Button>
         <Button type="button" variant={view === '3d' ? 'secondary' : 'ghost'} aria-pressed={view === '3d'} disabled={viewUnavailable} onClick={() => onViewChange('3d')}>{t(locale, 'view3d')}</Button>
       </div>
     </div>

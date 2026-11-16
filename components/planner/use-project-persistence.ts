@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { downloadTextFile, encodeProject, projectFilename } from '@/lib/planner/project-files'
 import { defaultPreferences, loadPreferences, savePreferences, type PlannerPreferences } from '@/lib/planner/preferences'
-import { loadProject, PROJECT_STORAGE_KEY, saveProject } from '@/lib/planner/storage'
+import { loadProject, PROJECT_STORAGE_KEY, readStoredRaw, saveProject } from '@/lib/planner/storage'
 import type { Project } from '@/lib/planner/types'
 
 export type SaveState = 'loading' | 'empty' | 'saved' | 'unsaved' | 'error' | 'conflict' | 'corrupt'
@@ -20,6 +20,7 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
   const [savedProjectAvailable, setSavedProjectAvailable] = useState(false)
   const [corruptValue, setCorruptValue] = useState<string | null>(null)
   const [errorKey, setErrorKey] = useState<string | null>(null)
+  const [upgradedFromV1, setUpgradedFromV1] = useState(false)
   const [preferences, setPreferences] = useState<PlannerPreferences>(defaultPreferences)
   const projectRef = useRef(project)
   const lastSavedProjectRef = useRef<Project | null>(null)
@@ -47,7 +48,7 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
         onPreferencesRef.current(loadedPreferences.value)
       }
       let raw: string | null = null
-      try { raw = storage.getItem(PROJECT_STORAGE_KEY) } catch {
+      try { raw = readStoredRaw(storage) } catch {
         setSaveState('error')
         setErrorKey('storage.unavailable')
         setHydrated(true)
@@ -60,9 +61,12 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
         setErrorKey(result.error.messageKey)
         setCorruptValue(raw)
       } else if (result.value) {
-        tokenRef.current = result.value.writeToken
+        // A project upgraded from the v1 entry has nothing under the v2 key yet, so its first save expects no token.
+        const upgraded = result.value.upgradedFromV1 === true
+        tokenRef.current = upgraded ? null : result.value.writeToken
         lastSavedProjectRef.current = result.value.project
-        setLastSavedToken(result.value.writeToken)
+        setUpgradedFromV1(upgraded)
+        setLastSavedToken(upgraded ? null : result.value.writeToken)
         setSavedProjectAvailable(true)
         onLoadRef.current(result.value.project)
         setSaveState('saved')
@@ -163,7 +167,10 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
     return true
   }, [])
 
+  const dismissUpgradeNotice = useCallback(() => setUpgradedFromV1(false), [])
+
   const allowOverwrite = useCallback(() => {
+    setUpgradedFromV1(false)
     setSaveState('empty')
     setErrorKey(null)
     setCorruptValue(null)
@@ -190,7 +197,7 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
   }, [corruptValue])
 
   return {
-    hydrated, saveState, lastSavedToken, savedProjectAvailable, corruptValue, errorKey, preferences,
+    hydrated, saveState, lastSavedToken, upgradedFromV1, dismissUpgradeNotice, savedProjectAvailable, corruptValue, errorKey, preferences,
     saveNow, replaceFromStorage, allowOverwrite, savePreferenceValues, downloadProject, downloadCorruptRaw,
   }
 }

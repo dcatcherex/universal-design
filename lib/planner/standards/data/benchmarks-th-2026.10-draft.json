@@ -1,0 +1,79 @@
+{
+  "datasetVersion": "2026.10-draft",
+  "sources": [
+    {
+      "id": "mr-2548-2564",
+      "benchmarkId": "th-public-building",
+      "title": "กฎกระทรวงกำหนดสิ่งอำนวยความสะดวกในอาคารสำหรับผู้พิการหรือทุพพลภาพ และคนชรา พ.ศ. 2548 แก้ไขเพิ่มเติม (ฉบับที่ 2) พ.ศ. 2564",
+      "edition": "Royal Gazette vol. 122 part 52 ก (2 Jul 2005); amended vol. 138 part 16 ก (4 Mar 2021)",
+      "url": "https://data.yotathai.org/d/cgj5dv.pdf",
+      "applicability": {
+        "th": "บังคับใช้กับอาคารสาธารณะตามข้อ 3 ไม่บังคับใช้กับบ้านพักอาศัยส่วนบุคคล ใช้เป็นเกณฑ์อ้างอิงเท่านั้น",
+        "en": "Applies to the public buildings listed in clause 3. It is not binding on private homes and is used here as a reference benchmark only."
+      }
+    },
+    {
+      "id": "dop-home-manual",
+      "benchmarkId": "th-dop-home",
+      "title": "คู่มือสำหรับช่างและสมาชิกในชุมชน เพื่อการจัดสภาพแวดล้อมที่เหมาะสมสำหรับผู้สูงอายุ (กรมกิจการผู้สูงอายุ)",
+      "edition": "about 2012",
+      "url": "https://www.dop.go.th/download/knowledge/th1614910224-611_0.pdf",
+      "applicability": {
+        "th": "คำแนะนำสำหรับบ้านพักอาศัย ไม่มีผลบังคับตามกฎหมาย",
+        "en": "Advisory guidance for homes. It has no legal force."
+      }
+    }
+  ],
+  "values": [
+    { "key": "door.clearWidth", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 18(3)", "comparison": "min", "minMm": 860, "note": { "th": "ความกว้างสุทธิของช่องประตู", "en": "Clear width of the doorway." }, "review": { "status": "pending" } },
+    { "key": "door.clearWidth", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ประตู", "comparison": "min", "minMm": 900, "note": { "th": "ความกว้างสุทธิของช่องประตู", "en": "Clear width of the doorway." }, "review": { "status": "pending" } },
+
+    { "key": "door.threshold", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 18(2)", "comparison": "max", "maxMm": 13, "note": { "th": "ธรณีประตูสูง 6.4–13 มม. ต้องปาดขอบลาดเอียง 1:2", "en": "A threshold of 6.4–13 mm must have a 1:2 bevel. The bevel is noted, not modelled." }, "review": { "status": "pending" } },
+    { "key": "door.threshold", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ประตู", "comparison": "max", "maxMm": 20, "note": { "th": "ควรไม่มีธรณีประตู", "en": "Ideally no threshold at all." }, "review": { "status": "pending" } },
+
+    { "key": "door.handleHeight", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 18(7)", "comparison": "range", "minMm": 1000, "maxMm": 1200, "note": { "th": "ความสูงของมือจับจากพื้น", "en": "Handle height above the floor." }, "review": { "status": "pending" } },
+    { "key": "door.handleHeight", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ประตู", "comparison": "range", "minMm": 1000, "maxMm": 1200, "note": { "th": "ความสูงของมือจับจากพื้น", "en": "Handle height above the floor." }, "review": { "status": "pending" } },
+
+    { "key": "door.handleType", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 18(7)", "comparison": "allowed-values", "allowed": ["lever"], "note": { "th": "มือจับแบบก้านบิด", "en": "Lever handle." }, "review": { "status": "pending" } },
+    { "key": "door.handleType", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "", "comparison": "allowed-values", "notApplicableReason": { "th": "คู่มือไม่ได้ระบุชนิดมือจับ", "en": "The manual gives no handle type." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+
+    { "key": "route.clearWidth", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 16", "comparison": "min", "notApplicableReason": { "th": "ข้อกำหนดทางเดินกว้าง 1,500 มม. ใช้กับทางเดินระหว่างอาคาร ไม่ใช่ทางเดินภายในห้อง", "en": "The 1,500 mm walkway rule applies between buildings, not to routes inside a room." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+    { "key": "route.clearWidth", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ทางเดินภายในบ้าน", "comparison": "min", "minMm": 800, "note": { "th": "ความกว้างทางเดินภายในบ้าน", "en": "Indoor route width." }, "review": { "status": "pending" } },
+
+    { "key": "bathroom.doorOperation", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 21(2)", "comparison": "allowed-values", "allowed": ["sliding", "hinged-out"], "appliesWhen": { "roomTypes": ["bathroom"] }, "note": { "th": "ประตูบานเลื่อนหรือบานเปิดออกสู่ภายนอก", "en": "Sliding door, or a door that opens outward." }, "review": { "status": "pending" } },
+    { "key": "bathroom.doorOperation", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ห้องน้ำ", "comparison": "allowed-values", "allowed": ["sliding", "hinged-out"], "appliesWhen": { "roomTypes": ["bathroom"] }, "note": { "th": "คู่มือกำหนดว่าต้องเปิดจากภายนอกได้ จึงบันทึกเป็นบานเลื่อนหรือบานเปิดออก", "en": "The manual requires a door that can be opened from outside; recorded here as sliding or outward-opening." }, "review": { "status": "pending" } },
+
+    { "key": "bathroom.turningDiameter", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 21(1)", "comparison": "min", "minMm": 1500, "appliesWhen": { "roomTypes": ["bathroom"] }, "note": { "th": "พื้นที่ว่างให้เก้าอี้ล้อหมุนตัวกลับได้", "en": "Clear space for a wheelchair to turn." }, "review": { "status": "pending" } },
+    { "key": "bathroom.turningDiameter", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ห้องน้ำ", "comparison": "min", "minMm": 1500, "appliesWhen": { "roomTypes": ["bathroom"] }, "note": { "th": "พื้นที่ว่างให้เก้าอี้ล้อหมุนตัวกลับได้", "en": "Clear space for a wheelchair to turn." }, "review": { "status": "pending" } },
+
+    { "key": "toilet.seatHeight", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 21(5)", "comparison": "range", "minMm": 400, "maxMm": 450, "note": { "th": "ความสูงของที่นั่งโถส้วมจากพื้น", "en": "Toilet seat height above the floor." }, "review": { "status": "pending" } },
+    { "key": "toilet.seatHeight", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "", "comparison": "range", "notApplicableReason": { "th": "คู่มือแนะนำโถนั่งราบแต่ไม่ได้ระบุความสูง", "en": "The manual recommends a sit-down toilet but gives no height." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+
+    { "key": "toilet.type", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "", "comparison": "allowed-values", "notApplicableReason": { "th": "กฎกระทรวงกำหนดความสูงที่นั่ง ไม่ได้กำหนดชนิดโถแยกต่างหาก", "en": "The regulation sets a seat height rather than a separate toilet type." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+    { "key": "toilet.type", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ห้องน้ำ", "comparison": "allowed-values", "allowed": ["seated"], "note": { "th": "โถส้วมแบบนั่งราบ", "en": "Sit-down toilet." }, "review": { "status": "pending" } },
+
+    { "key": "grabBar.horizontalHeight", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 21(6)", "comparison": "range", "minMm": 650, "maxMm": 700, "note": { "th": "ความสูงของราวจับแนวนอนข้างโถส้วม", "en": "Height of the horizontal grab bar beside the toilet." }, "review": { "status": "pending" } },
+    { "key": "grabBar.horizontalHeight", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "", "comparison": "range", "notApplicableReason": { "th": "คู่มือแนะนำให้มีราวจับตลอดแนวแต่ไม่ได้ระบุความสูงข้างโถ", "en": "The manual recommends rails throughout but gives no height beside the toilet." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+
+    { "key": "grabBar.projectionPastBowl", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 21(6)", "comparison": "range", "minMm": 250, "maxMm": 300, "note": { "th": "ราวจับยื่นล้ำออกมาจากด้านหน้าโถส้วม", "en": "How far the bar extends past the front of the bowl." }, "review": { "status": "pending" } },
+    { "key": "grabBar.projectionPastBowl", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "", "comparison": "range", "notApplicableReason": { "th": "คู่มือไม่ได้ระบุค่า", "en": "The manual gives no value." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+
+    { "key": "grabBar.foldDownGap", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 21(7)", "comparison": "range", "minMm": 150, "maxMm": 200, "note": { "th": "ระยะห่างของราวจับแบบพับเก็บได้จากขอบโถส้วม", "en": "Gap between a fold-down bar and the edge of the bowl." }, "review": { "status": "pending" } },
+    { "key": "grabBar.foldDownGap", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "", "comparison": "range", "notApplicableReason": { "th": "คู่มือไม่ได้ระบุค่า", "en": "The manual gives no value." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+
+    { "key": "grabBar.diameter", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 8(7)", "comparison": "range", "minMm": 30, "maxMm": 40, "note": { "th": "เส้นผ่านศูนย์กลางราวจับ", "en": "Grab bar diameter." }, "review": { "status": "pending" } },
+    { "key": "grabBar.diameter", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ราวจับ", "comparison": "range", "minMm": 30, "maxMm": 40, "note": { "th": "เส้นผ่านศูนย์กลางราวจับ", "en": "Grab bar diameter." }, "review": { "status": "pending" } },
+
+    { "key": "basin.rimHeight", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 21(10)", "comparison": "range", "minMm": 750, "maxMm": 800, "note": { "th": "ความสูงขอบอ่างล้างมือจากพื้น", "en": "Basin rim height above the floor." }, "review": { "status": "pending" } },
+    { "key": "basin.rimHeight", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "", "comparison": "range", "notApplicableReason": { "th": "คู่มือไม่ได้ระบุค่า", "en": "The manual gives no value." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+
+    { "key": "basin.kneeClearanceDepth", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 21(10)", "comparison": "min", "minMm": 450, "note": { "th": "ที่ว่างใต้อ่างสำหรับเข่า", "en": "Clear knee space under the basin." }, "review": { "status": "pending" } },
+    { "key": "basin.kneeClearanceDepth", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "", "comparison": "min", "notApplicableReason": { "th": "คู่มือไม่ได้ระบุค่า", "en": "The manual gives no value." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+
+    { "key": "floor.slipResistant", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "ข้อ 21", "comparison": "required", "appliesWhen": { "roomTypes": ["bathroom"] }, "note": { "th": "พื้นห้องส้วมต้องใช้วัสดุไม่ลื่น", "en": "The toilet-room floor must be slip resistant." }, "review": { "status": "pending" } },
+    { "key": "floor.slipResistant", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ห้องน้ำ", "comparison": "required", "appliesWhen": { "roomTypes": ["bathroom"] }, "note": { "th": "พื้นไม่ลื่น", "en": "Slip-resistant floor." }, "review": { "status": "pending" } },
+
+    { "key": "socket.height", "benchmarkId": "th-public-building", "sourceId": "mr-2548-2564", "clause": "", "comparison": "range", "notApplicableReason": { "th": "กฎกระทรวงไม่ได้ระบุความสูงของเต้ารับ", "en": "The regulation does not specify a socket height." }, "note": { "th": "", "en": "" }, "review": { "status": "pending" } },
+    { "key": "socket.height", "benchmarkId": "th-dop-home", "sourceId": "dop-home-manual", "clause": "คู่มือ: ปลั๊กไฟ", "comparison": "range", "minMm": 800, "maxMm": 900, "appliesWhen": { "mobilityAids": ["wheelchair"] }, "note": { "th": "ความสูงเต้ารับสำหรับผู้ใช้รถเข็น", "en": "Socket height for wheelchair users." }, "review": { "status": "pending" } }
+  ]
+}

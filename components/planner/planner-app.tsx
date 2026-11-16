@@ -18,9 +18,9 @@ function PlannerExperience() {
     if (hasWork && !window.confirm(t(planner.locale, 'importConfirm'))) return
     setScreen('setup')
   }
-  function openExample() {
+  function openExample(roomType: 'living' | 'bathroom' = 'living') {
     if (hasWork && !window.confirm(t(planner.locale, 'importConfirm'))) return
-    planner.openExample()
+    planner.openExample(roomType)
     setScreen('editor')
   }
   async function importProject(event: ChangeEvent<HTMLInputElement>) {
@@ -40,13 +40,14 @@ function PlannerExperience() {
   return <main className="welcome-page">
     <header className="welcome-header"><div className="brand-lockup"><span className="brand-mark">บ</span><span><strong>{t(planner.locale, 'brand')}</strong><small>{t(planner.locale, 'subtitle')}</small></span></div><Button type="button" variant="ghost" onClick={() => planner.setLocale(planner.locale === 'th' ? 'en' : 'th')}>{planner.locale === 'th' ? 'EN' : 'ไทย'}</Button></header>
     <section className="welcome-card"><div className="welcome-art" aria-hidden="true"><div className="welcome-window" /><div className="welcome-sofa" /><div className="welcome-table" /><span className="welcome-plant">✿</span></div><div className="welcome-copy"><p className="eyebrow">{t(planner.locale, 'brand')}</p><h1>{t(planner.locale, 'welcomeTitle')}</h1><p>{t(planner.locale, 'welcomeBody')}</p>
-      <div className="welcome-actions"><Button type="button" className="primary-action large-action" onClick={beginSetup}>{t(planner.locale, 'newProject')}<span aria-hidden="true">→</span></Button><Button type="button" variant="outline" className="large-action" onClick={openExample}>{t(planner.locale, 'openExample')}<span aria-hidden="true">↗</span></Button><div className="file-action"><input ref={fileInput} type="file" accept=".json,.udhome.json,application/json" hidden onChange={importProject} /><Button type="button" variant="outline" className="large-action" onClick={() => fileInput.current?.click()}>{t(planner.locale, 'openFile')}<span aria-hidden="true">↗</span></Button></div></div>
+      <div className="welcome-actions"><Button type="button" className="primary-action large-action" onClick={beginSetup}>{t(planner.locale, 'newProject')}<span aria-hidden="true">→</span></Button><Button type="button" variant="outline" className="large-action" onClick={() => openExample('living')}>{t(planner.locale, 'openExample')}<span aria-hidden="true">↗</span></Button><Button type="button" variant="outline" className="large-action" onClick={() => openExample('bathroom')}>{t(planner.locale, 'openBathroomExample')}<span aria-hidden="true">↗</span></Button><div className="file-action"><input ref={fileInput} type="file" accept=".json,.udhome.json,application/json" hidden onChange={importProject} /><Button type="button" variant="outline" className="large-action" onClick={() => fileInput.current?.click()}>{t(planner.locale, 'openFile')}<span aria-hidden="true">↗</span></Button></div></div>
       {fileError && <p role="alert" className="field-error">{t(planner.locale, 'importInvalid')}</p>}
+      {planner.upgradedFromV1 && <p role="status" className="helper-text">{t(planner.locale, 'upgradedNotice')}</p>}
       {planner.saveState === 'corrupt' && <section className="recovery-card" role="alert"><strong>{t(planner.locale, 'corruptTitle')}</strong><p>{t(planner.locale, 'corruptBody')}</p><div><Button type="button" variant="outline" onClick={planner.downloadCorruptRaw}>{t(planner.locale, 'downloadRaw')}</Button><Button type="button" variant="outline" onClick={beginSetup}>{t(planner.locale, 'startOver')}</Button></div></section>}
       {planner.saveState === 'conflict' && <section className="recovery-card" role="status"><p>{t(planner.locale, 'storageConflict')}</p><div><Button type="button" variant="outline" onClick={() => { if (planner.replaceFromStorage()) setScreen('editor') }}>{t(planner.locale, 'reloadStored')}</Button><Button type="button" variant="outline" onClick={planner.downloadProject}>{t(planner.locale, 'exportProject')}</Button></div></section>}
       {planner.savedProjectAvailable && <Button type="button" variant="ghost" onClick={() => setScreen('editor')}>{t(planner.locale, 'continueProject')} · {planner.project.title}</Button>}
     </div></section>
-    <footer className="welcome-footer"><span>● {planner.locale === 'th' ? 'ข้อมูลอยู่ในอุปกรณ์ของคุณ' : 'Your project stays on this device'}</span><span>{planner.locale === 'th' ? 'หนึ่งห้องนั่งเล่นต่อหนึ่งโครงการ' : 'One living room per project'}</span></footer>
+    <footer className="welcome-footer"><span>● {planner.locale === 'th' ? 'ข้อมูลอยู่ในอุปกรณ์ของคุณ' : 'Your project stays on this device'}</span><span>{planner.locale === 'th' ? 'หนึ่งห้องต่อหนึ่งโครงการ' : 'One room per project'}</span></footer>
   </main>
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getPrimaryRoom } from '../../lib/planner/layout-access'
 import { resolveCatalogEntry } from '../../lib/planner/catalog'
 import { createExampleProject } from '../../lib/planner/fixtures'
 import { decodeProject, encodeProject, projectFilename } from '../../lib/planner/project-files'
@@ -14,7 +15,7 @@ function detailedProject() {
     materials: { lowSatang: 10000, highSatang: 20000, sourceNote: 'Local quotation supplied by family', estimatedAt: now },
     labour: null,
   }]
-  project.review = { reviewerName: 'Advisor', reviewedAt: now, projectRevision: project.revision }
+  project.review = { reviewerName: 'Advisor', reviewedAt: now, projectRevision: project.revision, benchmarkDatasetVersion: '2026.10-draft' }
   return project
 }
 
@@ -30,9 +31,9 @@ describe('project file exchange', () => {
   })
   it('rejects future schema versions and duplicate IDs', () => {
     const future = detailedProject() as unknown as Record<string, unknown>
-    expect(decodeProject(JSON.stringify({ ...future, schemaVersion: 2 })).ok).toBe(false)
+    expect(decodeProject(JSON.stringify({ ...future, schemaVersion: 3 })).ok).toBe(false)
     const duplicate = detailedProject()
-    duplicate.current.items.push({ ...duplicate.current.items[0] })
+    getPrimaryRoom(duplicate.current).items.push({ ...getPrimaryRoom(duplicate.current).items[0] })
     expect(decodeProject(JSON.stringify(duplicate)).ok).toBe(false)
   })
   it('rejects invalid costs and dangling recommendation references', () => {
@@ -45,11 +46,11 @@ describe('project file exchange', () => {
   })
   it('keeps unknown catalog ids and resolves them to a custom-block appearance', () => {
     const project = detailedProject()
-    project.current.items[0].catalogId = 'future-furniture'
+    getPrimaryRoom(project.current).items[0].catalogId = 'future-furniture'
     const result = decodeProject(JSON.stringify(project))
     expect(result.ok).toBe(true)
     expect(resolveCatalogEntry('future-furniture').id).toBe('custom-block')
-    if (result.ok) expect(result.value.current.items[0].catalogId).toBe('future-furniture')
+    if (result.ok) expect(getPrimaryRoom(result.value.current).items[0].catalogId).toBe('future-furniture')
   })
   it('sanitizes project titles into safe .udhome.json names', () => {
     expect(projectFilename('../My room:*?')).toBe('My room.udhome.json')

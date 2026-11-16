@@ -1,3 +1,4 @@
+import { migrateProject } from './migrate'
 import { validateProject } from './schema'
 import type { Project, Result } from './types'
 
@@ -21,10 +22,11 @@ export function decodeProject(text: string): Result<Project> {
   } catch {
     return failure('invalid-json', 'project.invalidJson', ['file'])
   }
-  if (typeof parsed === 'object' && parsed !== null && 'schemaVersion' in parsed && typeof parsed.schemaVersion === 'number' && parsed.schemaVersion > 1) {
+  if (typeof parsed === 'object' && parsed !== null && 'schemaVersion' in parsed && typeof parsed.schemaVersion === 'number' && parsed.schemaVersion > 2) {
     return failure('future-version', 'project.futureVersion', ['schemaVersion'])
   }
-  const validation = validateProject(parsed)
+  // Files written by earlier versions are upgraded on the way in.
+  const validation = migrateProject(parsed)
   if (!validation.ok) return { ok: false, error: { ...validation.error, code: 'invalid-project' } }
   return validation
 }

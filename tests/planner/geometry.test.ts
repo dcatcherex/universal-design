@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { capsuleIntersectsRect, circleIntersectsRect, getDoorSector, getFootprint, isWithinRoom, rectanglesOverlap, sectorIntersectsRect } from '../../lib/planner/geometry'
-import type { FurnitureItem, Opening, Room } from '../../lib/planner/types'
+import type { FurnitureItem, Opening } from '../../lib/planner/types'
 
 const m = (valueMm: number) => ({ valueMm, confidence: 'estimated' as const })
-const room: Room = { width: m(6000), depth: m(5000), height: m(2700) }
+const room = { shape: { kind: 'rect' as const, width: m(6000), depth: m(5000) } }
 const item = (xMm = 1000, yMm = 1000, rotationDeg: FurnitureItem['rotationDeg'] = 90): FurnitureItem => ({
   id: 'item', catalogId: 'custom-block', label: 'block', center: { xMm, yMm }, width: m(800), depth: m(400), height: m(600),
   rotationDeg, finish: 'oak', obstruction: 'solid',

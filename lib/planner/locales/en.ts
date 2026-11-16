@@ -1,3 +1,5 @@
+import { enR1 } from './en-r1'
+
 export const en = {
   brand: 'Baan Yoo Dee',
   subtitle: 'A thoughtful home adaptation planner',
@@ -104,6 +106,14 @@ export const en = {
   resetCamera: 'Reset camera',
   hideWalls: 'Hide near walls',
   showWalls: 'Show near walls',
+  allCategories: 'All',
+  catalogHint: 'Choose a piece, then click the plan.',
+  catalogFilter: 'Filter by type',
+  unitCm: 'cm',
+  finishOak: 'Oak and linen',
+  finishCream: 'Cream',
+  finishSage: 'Sage green',
+  finishCharcoal: 'Charcoal',
   webglFallback: '3D is unavailable in this browser. The 2D plan and project download are still available.',
   webglLost: 'The 3D graphics context was lost. Continue in the 2D plan.',
   checksTitle: 'Geometry checks',
@@ -274,4 +284,5 @@ export const en = {
   title: 'Title',
   checksDisclaimer: 'Entered-plan checks are not a safety assessment.',
   checkLimitGeneral: 'This plan does not certify accessibility, maneuverability, building-code compliance, or that all destinations are reachable.',
+  ...enR1,
 } as const

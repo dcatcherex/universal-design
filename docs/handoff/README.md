@@ -2,6 +2,8 @@
 
 ## Next work: R1 — Benchmarks and bathroom
 
+**R1 is mostly built (2026-11-16). Start from [R1 remaining work](r1-remaining-work.md)**, which lists the verified state, the four failing browser tests and every task still open. The reading list below is its background.
+
 Read in this order:
 1. Repository `AGENTS.md` and the installed Next.js guides relevant to your first task.
 2. [v2 specification](../superpowers/specs/2026-10-21-baan-yoo-dee-v2-design.md) (authoritative for new work).

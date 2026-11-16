@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
+type SavedLayout = { floors: { rooms: { items: Array<{ id: string; center: { xMm: number } }> }[] }[] }
+
 test('completes a Thai project, proposal, review, save, round-trip and report', async ({ page }) => {
   await page.addInitScript(() => { window.print = () => undefined })
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -77,10 +79,11 @@ test('completes a Thai project, proposal, review, save, round-trip and report', 
   await page.getByRole('button', { name: 'ไฟล์โครงการ' }).click()
   await page.getByRole('menuitem', { name: 'ดาวน์โหลดไฟล์โครงการ' }).click()
   const download = await projectDownload
-  const project = JSON.parse(await readFile((await download.path())!, 'utf8')) as { title: string; current: { items: Array<{ id: string; center: { xMm: number } }> }; proposed: { items: Array<{ id: string; center: { xMm: number } }> } }
+  const project = JSON.parse(await readFile((await download.path())!, 'utf8')) as { schemaVersion: number; title: string; current: SavedLayout; proposed: SavedLayout }
   expect(project.title).toBe('บ้านครอบครัวทดลอง')
-  expect(project.current.items[0]?.center.xMm).toBe(3000)
-  expect(project.proposed.items[0]?.center.xMm).toBe(3500)
+  expect(project.schemaVersion).toBe(2)
+  expect(project.current.floors[0].rooms[0].items[0]?.center.xMm).toBe(3000)
+  expect(project.proposed.floors[0].rooms[0].items[0]?.center.xMm).toBe(3500)
 
   page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'ไฟล์โครงการ' }).click()

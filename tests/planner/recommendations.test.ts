@@ -30,7 +30,7 @@ describe('recommendation estimates and review drafts', () => {
   })
 
   it('creates a localized editable draft tied to the check location', () => {
-    const result: CheckResult = { id: 'G02:current:a:b', ruleId: 'G02', layoutId: 'current', entityIds: ['a', 'b'], status: 'attention', messageKey: 'checks.collisionAttention', evidence: { confidence: 'estimated', origin: 'geometry', limitationKey: 'checks.collisionLimit' } }
+    const result: CheckResult = { id: 'G02:current:a:b', ruleId: 'G02', layoutId: 'current', roomId: 'room-1', entityIds: ['a', 'b'], verdicts: [], basis: 'geometry', nearFall: false, status: 'attention', messageKey: 'checks.collisionAttention', evidence: { confidence: 'estimated', origin: 'geometry', limitationKey: 'checks.collisionLimit' } }
     expect(buildRecommendationDraft(result, 'th')).toMatchObject({ title: expect.any(String), reason: expect.any(String), action: expect.any(String) })
     expect(buildRecommendationDraft(result, 'en')).not.toEqual(buildRecommendationDraft(result, 'th'))
   })

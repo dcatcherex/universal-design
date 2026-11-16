@@ -151,6 +151,8 @@ test('loads a read-only 3D inspection for the active proposal and resets its cam
   await expect(page.getByText(/ใช้ตรวจดูและเลือกสิ่งของ/)).toBeVisible()
   await expect(table).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'ตั้งมุมมองใหม่' }).click()
+  // The near walls start hidden so the room is visible from the default camera.
+  await page.getByRole('button', { name: 'แสดงผนังด้านหน้า' }).click()
   await page.getByRole('button', { name: 'ซ่อนผนังด้านหน้า' }).click()
   await expect(page.getByRole('button', { name: 'แสดงผนังด้านหน้า' })).toBeVisible()
   const sceneCanvas = page.getByTestId('room-scene-canvas')
@@ -158,7 +160,8 @@ test('loads a read-only 3D inspection for the active proposal and resets its cam
   if (!sceneBounds) throw new Error('3D room canvas is not visible')
   await sceneCanvas.click({ position: { x: 12, y: 12 } })
   await expect(table).toHaveAttribute('aria-pressed', 'false')
-  await sceneCanvas.click({ position: { x: sceneBounds.width * 0.54, y: sceneBounds.height * 0.53 } })
+  // Where the table top at (3400, 1800) projects with the default camera in createRoomCamera.
+  await sceneCanvas.click({ position: { x: sceneBounds.width * 0.568, y: sceneBounds.height * 0.56 } })
   await expect(table).toHaveAttribute('aria-pressed', 'true')
   await page.screenshot({ path: path.resolve('docs/handoff/evidence/m2-thai-3d.png') })
   const pngDownload = page.waitForEvent('download')
@@ -249,7 +252,11 @@ test('draws overlays on the plan and requires advisor-entered, project-specific 
   await expect(svg.locator('.overlay-draft-point')).toHaveCount(2)
   await page.getByRole('button', { name: 'จบแนวทางเดิน' }).click()
   await expect(page.locator('[data-overlay-id^="route-"]')).toHaveCount(1)
-  await expect(page.locator('[data-rule-id="G04"][data-check-status="not-evaluated"]')).toBeVisible()
+  // v2: a corridor with no width of its own is tested at the benchmark width, with a verdict per benchmark.
+  const drawnRoute = page.locator('[data-rule-id="G04"]').filter({ hasText: 'การเปรียบเทียบกับเกณฑ์อ้างอิง' })
+  await expect(drawnRoute).toBeVisible()
+  await expect(drawnRoute.locator('[data-testid="verdict"][data-benchmark="th-public-building"]')).toHaveAttribute('data-outcome', 'no-value')
+  await expect(drawnRoute.locator('[data-testid="verdict"][data-benchmark="th-dop-home"]')).toHaveAttribute('data-outcome', /likely/)
 
   await page.getByRole('button', { name: 'วางบนแผนผัง' }).click()
   await svg.click({ position: { x: 300, y: 300 } })

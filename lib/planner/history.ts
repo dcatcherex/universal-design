@@ -1,4 +1,5 @@
 import { applyCommand, type ProjectCommand } from './commands'
+import { BENCHMARKS } from './standards/benchmarks'
 import type { Project, Result } from './types'
 
 export type HistoryState = { present: Project; past: Project[]; future: Project[] }
@@ -52,7 +53,8 @@ export function redo(state: HistoryState, now: string): HistoryState {
   }
 }
 
-export function getReviewStatus(project: Project): 'not-reviewed' | 'reviewed' | 'outdated' {
+/** A review is current only for the exact project revision and benchmark dataset it covered. */
+export function getReviewStatus(project: Project, datasetVersion: string = BENCHMARKS.datasetVersion): 'not-reviewed' | 'reviewed' | 'outdated' {
   if (!project.review) return 'not-reviewed'
-  return project.review.projectRevision === project.revision ? 'reviewed' : 'outdated'
+  return project.review.projectRevision === project.revision && project.review.benchmarkDatasetVersion === datasetVersion ? 'reviewed' : 'outdated'
 }

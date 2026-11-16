@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
-const projectKey = 'baan-yoo-dee.project.v1'
+const projectKey = 'baan-yoo-dee.project.v2'
 
 test('offers the exact corrupt saved bytes before a deliberate start over', async ({ page }) => {
   const raw = '{broken user data — keep for recovery'
@@ -22,7 +22,7 @@ test('future-version and oversized imports leave the active project intact', asy
   await page.getByRole('button', { name: 'เปิดตัวอย่างโครงการ' }).click()
   await page.getByLabel('หน้าแรก').click()
   const fileInput = page.locator('input[type="file"]')
-  await fileInput.setInputFiles({ name: 'future.udhome.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ schemaVersion: 2 })) })
+  await fileInput.setInputFiles({ name: 'future.udhome.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ schemaVersion: 3 })) })
   await expect(page.getByText('เปิดไฟล์โครงการนี้ไม่ได้ โครงการปัจจุบันยังไม่เปลี่ยนแปลง')).toBeVisible()
   await fileInput.setInputFiles({ name: 'large.udhome.json', mimeType: 'application/json', buffer: Buffer.alloc(2 * 1024 * 1024 + 1, 32) })
   await expect(page.getByText('เปิดไฟล์โครงการนี้ไม่ได้ โครงการปัจจุบันยังไม่เปลี่ยนแปลง')).toBeVisible()
@@ -46,9 +46,9 @@ test('quota failure preserves the in-memory project for download', async ({ page
   await page.getByRole('button', { name: 'ไฟล์โครงการ' }).click()
   await page.getByRole('menuitem', { name: 'ดาวน์โหลดไฟล์โครงการ' }).click()
   const download = await projectDownload
-  const project = JSON.parse(await readFile((await download.path())!, 'utf8')) as { title: string; current: { items: unknown[] } }
+  const project = JSON.parse(await readFile((await download.path())!, 'utf8')) as { title: string; current: { floors: { rooms: { items: unknown[] }[] }[] } }
   expect(project.title).toMatch(/ตัวอย่างห้องนั่งเล่น/)
-  expect(project.current.items).toHaveLength(2)
+  expect(project.current.floors[0].rooms[0].items).toHaveLength(2)
 })
 
 test('storage conflict offers a download of this tab’s still-live project', async ({ page }) => {

@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { parseLength, formatLength } from '@/lib/planner/units'
 import { t } from '@/lib/planner/i18n'
-import type { Layout, Locale, PointMm, RouteOverlay, TurningOverlay } from '@/lib/planner/types'
+import { getPrimaryFloor, getPrimaryRoom, withPrimaryFloor } from '@/lib/planner/layout-access'
+import type { Layout, Locale, PointMm, RoomSpace, RouteOverlay, TurningOverlay } from '@/lib/planner/types'
 
 function parseCoordinate(value: string): number | null {
   const normalized = value.replace(/[๐-๙]/g, (digit) => String('๐๑๒๓๔๕๖๗๘๙'.indexOf(digit))).trim()
@@ -36,7 +37,7 @@ function PointFields({ point, index, locale, onChange, onRemove, canRemove, edit
 }
 
 function RouteEditor({ route, room, locale, editable, onSave, onRemove }: {
-  route: RouteOverlay; room: Layout['room']; locale: Locale; editable: boolean; onSave(route: RouteOverlay): void; onRemove(): void
+  route: RouteOverlay; room: RoomSpace; locale: Locale; editable: boolean; onSave(route: RouteOverlay): void; onRemove(): void
 }) {
   const [label, setLabel] = useState(route.label)
   const [width, setWidth] = useState(route.widthMm === null ? '' : formatLength(route.widthMm, 'cm', locale))
@@ -67,8 +68,8 @@ function RouteEditor({ route, room, locale, editable, onSave, onRemove }: {
   function addPoint() {
     if (points.length >= 12) return
     const last = points[points.length - 1]
-    const lastX = parseCoordinate(last.x) ?? Math.min(room.width.valueMm, 1000)
-    const lastY = parseCoordinate(last.y) ?? Math.min(room.depth.valueMm, 1000)
+    const lastX = parseCoordinate(last.x) ?? Math.min(room.shape.width.valueMm, 1000)
+    const lastY = parseCoordinate(last.y) ?? Math.min(room.shape.depth.valueMm, 1000)
     const nextX = lastX + 250
     setPoints([...points, { x: formatLength(nextX, 'cm', locale), y: formatLength(lastY, 'cm', locale) }])
   }
@@ -116,51 +117,41 @@ function TurningEditor({ area, locale, editable, onSave, onRemove }: {
 }
 
 export function OverlayEditor({ layout, locale, editable, onCommit, onStartDrawing }: { layout: Layout; locale: Locale; editable: boolean; onCommit(layout: Layout): void; onStartDrawing(type: 'route' | 'turning'): void }) {
-  function saveRoute(updated: RouteOverlay) {
-    const next = structuredClone(layout)
-    next.routes = next.routes.map((route) => route.id === updated.id ? updated : route)
-    onCommit(next)
-  }
-  function removeRoute(id: string) {
-    const next = structuredClone(layout)
-    next.routes = next.routes.filter((route) => route.id !== id)
-    onCommit(next)
-  }
+  // Overlays belong to the floor and use floor coordinates. With one room at the origin these equal room coordinates.
+  const floor = getPrimaryFloor(layout)
+  const room = getPrimaryRoom(layout)
+  const roomWidth = room.shape.width.valueMm, roomDepth = room.shape.depth.valueMm
+  const setRoutes = (update: (routes: RouteOverlay[]) => RouteOverlay[]) => onCommit(withPrimaryFloor(layout, (value) => ({ ...value, routes: update(value.routes) })))
+  const setTurning = (update: (areas: TurningOverlay[]) => TurningOverlay[]) => onCommit(withPrimaryFloor(layout, (value) => ({ ...value, turningAreas: update(value.turningAreas) })))
+  const saveRoute = (updated: RouteOverlay) => setRoutes((routes) => routes.map((route) => route.id === updated.id ? updated : route))
+  const removeRoute = (id: string) => setRoutes((routes) => routes.filter((route) => route.id !== id))
   function addRoute() {
-    if (layout.routes.length >= 20) return
-    const insetX = Math.min(500, Math.floor(layout.room.width.valueMm / 4))
-    const insetY = Math.min(500, Math.floor(layout.room.depth.valueMm / 4))
+    if (floor.routes.length >= 20) return
+    const insetX = Math.min(500, Math.floor(roomWidth / 4))
+    const insetY = Math.min(500, Math.floor(roomDepth / 4))
     const route: RouteOverlay = {
       id: `route-${crypto.randomUUID()}`, label: t(locale, 'routeOverlay'),
-      points: [{ xMm: insetX, yMm: insetY }, { xMm: layout.room.width.valueMm - insetX, yMm: insetY }], widthMm: null,
+      points: [{ xMm: room.origin.xMm + insetX, yMm: room.origin.yMm + insetY }, { xMm: room.origin.xMm + roomWidth - insetX, yMm: room.origin.yMm + insetY }], widthMm: null,
     }
-    onCommit({ ...structuredClone(layout), routes: [...layout.routes, route] })
+    setRoutes((routes) => [...routes, route])
   }
   function addTurning() {
-    if (layout.turningAreas.length >= 20) return
+    if (floor.turningAreas.length >= 20) return
     const area: TurningOverlay = {
       id: `turning-${crypto.randomUUID()}`, label: t(locale, 'turningOverlay'),
-      center: { xMm: Math.round(layout.room.width.valueMm / 2), yMm: Math.round(layout.room.depth.valueMm / 2) }, diameterMm: null,
+      center: { xMm: room.origin.xMm + Math.round(roomWidth / 2), yMm: room.origin.yMm + Math.round(roomDepth / 2) }, diameterMm: null,
     }
-    onCommit({ ...structuredClone(layout), turningAreas: [...layout.turningAreas, area] })
+    setTurning((areas) => [...areas, area])
   }
-  function saveTurning(updated: TurningOverlay) {
-    const next = structuredClone(layout)
-    next.turningAreas = next.turningAreas.map((area) => area.id === updated.id ? updated : area)
-    onCommit(next)
-  }
-  function removeTurning(id: string) {
-    const next = structuredClone(layout)
-    next.turningAreas = next.turningAreas.filter((area) => area.id !== id)
-    onCommit(next)
-  }
+  const saveTurning = (updated: TurningOverlay) => setTurning((areas) => areas.map((area) => area.id === updated.id ? updated : area))
+  const removeTurning = (id: string) => setTurning((areas) => areas.filter((area) => area.id !== id))
   return <section className="overlay-editor" id="overlay-instructions" tabIndex={-1} aria-labelledby="overlay-editor-title">
     <header><h2 id="overlay-editor-title">{t(locale, 'overlayTitle')}</h2></header>
     {!editable && <p className="helper-text">{t(locale, 'currentReadOnly')}</p>}
-    <div className="overlay-add-actions"><Button type="button" variant="outline" onClick={() => onStartDrawing('route')} disabled={!editable || layout.routes.length >= 20}>{t(locale, 'drawRoute')}</Button><Button type="button" variant="outline" onClick={addRoute} disabled={!editable || layout.routes.length >= 20}>{t(locale, 'addRoute')}</Button><Button type="button" variant="outline" onClick={() => onStartDrawing('turning')} disabled={!editable || layout.turningAreas.length >= 20}>{t(locale, 'drawTurning')}</Button><Button type="button" variant="outline" onClick={addTurning} disabled={!editable || layout.turningAreas.length >= 20}>{t(locale, 'addTurning')}</Button></div>
-    {!layout.routes.length && <p className="helper-text">{t(locale, 'noRoutes')}</p>}
-    {layout.routes.map((route) => <RouteEditor key={`${route.id}-${JSON.stringify(route)}`} route={route} room={layout.room} locale={locale} editable={editable} onSave={saveRoute} onRemove={() => removeRoute(route.id)} />)}
-    {!layout.turningAreas.length && <p className="helper-text">{t(locale, 'noTurningAreas')}</p>}
-    {layout.turningAreas.map((area) => <TurningEditor key={`${area.id}-${JSON.stringify(area)}`} area={area} locale={locale} editable={editable} onSave={saveTurning} onRemove={() => removeTurning(area.id)} />)}
+    <div className="overlay-add-actions"><Button type="button" variant="outline" onClick={() => onStartDrawing('route')} disabled={!editable || floor.routes.length >= 20}>{t(locale, 'drawRoute')}</Button><Button type="button" variant="outline" onClick={addRoute} disabled={!editable || floor.routes.length >= 20}>{t(locale, 'addRoute')}</Button><Button type="button" variant="outline" onClick={() => onStartDrawing('turning')} disabled={!editable || floor.turningAreas.length >= 20}>{t(locale, 'drawTurning')}</Button><Button type="button" variant="outline" onClick={addTurning} disabled={!editable || floor.turningAreas.length >= 20}>{t(locale, 'addTurning')}</Button></div>
+    {!floor.routes.length && <p className="helper-text">{t(locale, 'noRoutes')}</p>}
+    {floor.routes.map((route) => <RouteEditor key={`${route.id}-${JSON.stringify(route)}`} route={route} room={room} locale={locale} editable={editable} onSave={saveRoute} onRemove={() => removeRoute(route.id)} />)}
+    {!floor.turningAreas.length && <p className="helper-text">{t(locale, 'noTurningAreas')}</p>}
+    {floor.turningAreas.map((area) => <TurningEditor key={`${area.id}-${JSON.stringify(area)}`} area={area} locale={locale} editable={editable} onSave={saveTurning} onRemove={() => removeTurning(area.id)} />)}
   </section>
 }

@@ -4,19 +4,24 @@ import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { CATALOG, getCatalogEntry } from '@/lib/planner/catalog'
-import { t } from '@/lib/planner/i18n'
+import { resolveCatalogEntry } from '@/lib/planner/catalog'
+import { createCatalogItem } from '@/lib/planner/fixtures'
+import { createFixture, FIXTURE_CATALOG } from '@/lib/planner/fixtures-catalog'
+import { fixturePositionProblem } from '@/lib/planner/elevation'
+import { t, type MessageKey } from '@/lib/planner/i18n'
+import { getPrimaryFloor, getPrimaryRoom, toFloorPoint, withPrimaryFloor, withPrimaryRoom } from '@/lib/planner/layout-access'
 import { usePlanner } from './planner-provider'
-import { EditorToolbar } from './editor-toolbar'
+import { EditorToolbar, type WorkspaceView } from './editor-toolbar'
 import { CatalogPanel } from './catalog-panel'
 import { ItemInspector } from './item-inspector'
 import { PlanCanvas } from './plan-canvas'
 import { ProjectMenu } from './project-menu'
-import type { FurnitureItem } from '@/lib/planner/types'
+import type { FixtureKind, FurnitureItem, PointMm, Wall } from '@/lib/planner/types'
 import { RoomEditor } from './room-editor'
 import type { SceneHandle } from './room-view-3d'
 import { evaluateLayout } from '@/lib/planner/checks'
-import { ChecksPanel } from './checks-panel'
+import { BenchmarkPolicy, ChecksPanel } from './checks-panel'
+import { BenchmarkBanner } from './benchmark-verdicts'
 import { OverlayEditor } from './overlay-editor'
 import { AdvisorTargets } from './advisor-targets'
 import { RecommendationsPanel } from './recommendations-panel'
@@ -24,9 +29,14 @@ import { buildRecommendationDraft } from '@/lib/planner/recommendations'
 import type { CheckResult, Recommendation } from '@/lib/planner/types'
 import { ExportMenu } from './export-menu'
 import { ReportPreview } from './report-preview'
-import { buildReportData, type ReportData } from '@/lib/planner/exports/report-data'
+import { buildReportData } from '@/lib/planner/exports/report-data'
 import { createPlanSvg } from '@/lib/planner/exports/plan-svg'
 import { downloadBlob, downloadText, safeDownloadName } from '@/lib/planner/exports/download'
+import type { Fix, FixParams } from '@/lib/planner/standards/fixes'
+import { FixtureInspector } from './fixture-inspector'
+import { FixPreview } from './fix-preview'
+import { ResidentPanel } from './resident-panel'
+import { WallElevation } from './wall-elevation'
 
 const RoomView3D = dynamic(() => import('./room-view-3d').then((module) => module.RoomView3D), {
   ssr: false,
@@ -34,45 +44,60 @@ const RoomView3D = dynamic(() => import('./room-view-3d').then((module) => modul
 })
 
 type Panel = 'catalog' | 'inspector' | 'checks' | 'recommendations' | null
+type InspectorTab = 'items' | 'fixtures' | 'checks' | 'recommendations' | 'resident'
+const WALL_LABELS: Record<Wall, MessageKey> = { north: 'wallNorth', east: 'wallEast', south: 'wallSouth', west: 'wallWest' }
 
 export function Workspace({ onHome, onNewSetup }: { onHome(): void; onNewSetup(): void }) {
   const planner = usePlanner()
   const { project, activeLayout, activeLayoutId, locale, selectionId } = planner
   const [panel, setPanel] = useState<Panel>(null)
-  const [inspectorTab, setInspectorTab] = useState<'items' | 'checks' | 'recommendations'>('items')
-  const [view, setView] = useState<'2d' | '3d'>('2d')
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('items')
+  const [view, setView] = useState<WorkspaceView>('2d')
+  const [wall, setWall] = useState<Wall>('north')
   const [overlayTool, setOverlayTool] = useState<'route' | 'turning' | null>(null)
+  const [pickingFallId, setPickingFallId] = useState<string | null>(null)
+  const [fixPreview, setFixPreview] = useState<{ result: CheckResult; fix: Fix } | null>(null)
+  const [newFixture, setNewFixture] = useState<{ kind: FixtureKind; wall: Wall }>({ kind: 'grab-bar-horizontal', wall: 'north' })
   const [recommendationDraft, setRecommendationDraft] = useState<{ projectId: string; recommendation: Recommendation } | null>(null)
-  const [reportSnapshot, setReportSnapshot] = useState<{ data: ReportData; locale: typeof locale; pngUrl: string | null } | null>(null)
+  const [reportOpen, setReportOpen] = useState<{ locale: typeof locale; pngUrl: string | null } | null>(null)
   const [exportMessage, setExportMessage] = useState('')
   const [viewError, setViewError] = useState<string | null>(null)
   const [sceneHandle, setSceneHandle] = useState<SceneHandle | null>(null)
   const [placement, setPlacement] = useState<{ catalogId: string; label: string; widthMm: number; depthMm: number; heightMm: number; finish: FurnitureItem['finish']; obstruction: FurnitureItem['obstruction'] } | null>(null)
-  const selectedItem = useMemo(() => activeLayout.items.find((item) => item.id === selectionId), [activeLayout.items, selectionId])
+  const room = getPrimaryRoom(activeLayout)
+  const floor = getPrimaryFloor(activeLayout)
+  const selectedItem = useMemo(() => room.items.find((item) => item.id === selectionId), [room.items, selectionId])
+  const selectedFixture = useMemo(() => room.fixtures.find((fixture) => fixture.id === selectionId), [room.fixtures, selectionId])
   const checkResults = useMemo(() => evaluateLayout(project, activeLayoutId), [project, activeLayoutId])
+  // The report re-reads the project while it is open, so the fall-history toggle takes effect at once.
+  const reportData = useMemo(() => reportOpen ? buildReportData(structuredClone(project), reportOpen.locale) : null, [project, reportOpen])
   const canEdit = activeLayoutId === 'proposed' || !project.proposed || planner.editingCurrent
+  const advisorMode = planner.mode === 'advisor'
   const pngAvailable = view === '3d' && !!sceneHandle && viewError === null
 
-  useEffect(() => () => { if (reportSnapshot?.pngUrl) URL.revokeObjectURL(reportSnapshot.pngUrl) }, [reportSnapshot])
+  useEffect(() => () => { if (reportOpen?.pngUrl) URL.revokeObjectURL(reportOpen.pngUrl) }, [reportOpen])
   const on3dUnavailable = useCallback((reason: string) => {
     setViewError(reason)
     setSceneHandle(null)
     setView('2d')
   }, [])
 
-  function changeView(nextView: '2d' | '3d') {
+  function changeView(nextView: WorkspaceView) {
     setSceneHandle(null)
     setView(nextView)
   }
+  function showWall(nextWall: Wall) {
+    setWall(nextWall)
+    changeView('wall')
+  }
 
   async function openReport() {
-    const data = buildReportData(structuredClone(project), locale)
     let pngUrl: string | null = null
     if (pngAvailable && sceneHandle) {
       try { pngUrl = URL.createObjectURL(await sceneHandle.capturePng()) }
       catch { setExportMessage(t(locale, 'exportFailed')) }
     }
-    setReportSnapshot({ data, locale, pngUrl })
+    setReportOpen({ locale, pngUrl })
   }
 
   function exportSvg() {
@@ -104,44 +129,50 @@ export function Workspace({ onHome, onNewSetup }: { onHome(): void; onNewSetup()
     if (!canEdit) return
     setView('2d')
     setInspectorTab('checks')
+    setPickingFallId(null)
     setOverlayTool(tool)
     setPanel(null)
   }
 
-  function placeRoute(points: { xMm: number; yMm: number }[]) {
-    if (activeLayout.routes.length >= 20 || points.length < 2) return
-    const next = structuredClone(activeLayout)
-    next.routes.push({ id: `route-${crypto.randomUUID()}`, label: t(locale, 'routeOverlay'), points, widthMm: null })
-    const result = planner.commit({ type: 'replace-layout', layoutId: activeLayoutId, layout: next })
+  // Points come from the plan in room coordinates; overlays are stored in floor coordinates.
+  function placeRoute(points: PointMm[]) {
+    if (floor.routes.length >= 20 || points.length < 2) return
+    const route = { id: `route-${crypto.randomUUID()}`, label: t(locale, 'routeOverlay'), points: points.map((point) => toFloorPoint(room, point)), widthMm: null }
+    const result = planner.commit({ type: 'replace-layout', layoutId: activeLayoutId, layout: withPrimaryFloor(activeLayout, (value) => ({ ...value, routes: [...value.routes, route] })) })
     if (!result.ok) window.alert(t(locale, 'overlayInputError'))
     setOverlayTool(null)
   }
 
-  function placeTurning(center: { xMm: number; yMm: number }) {
-    if (activeLayout.turningAreas.length >= 20) return
-    const next = structuredClone(activeLayout)
-    next.turningAreas.push({ id: `turning-${crypto.randomUUID()}`, label: t(locale, 'turningOverlay'), center, diameterMm: null })
-    const result = planner.commit({ type: 'replace-layout', layoutId: activeLayoutId, layout: next })
+  function placeTurning(center: PointMm) {
+    if (floor.turningAreas.length >= 20) return
+    const area = { id: `turning-${crypto.randomUUID()}`, label: t(locale, 'turningOverlay'), center: toFloorPoint(room, center), diameterMm: null }
+    const result = planner.commit({ type: 'replace-layout', layoutId: activeLayoutId, layout: withPrimaryFloor(activeLayout, (value) => ({ ...value, turningAreas: [...value.turningAreas, area] })) })
     if (!result.ok) window.alert(t(locale, 'overlayInputError'))
     setOverlayTool(null)
   }
 
   function selectCheckLocation(result: CheckResult) {
-    setView('2d')
-    setInspectorTab('checks')
     planner.setActiveLayout(result.layoutId)
     const targetLayout = result.layoutId === 'current' ? project.current : project.proposed
-    const selected = result.entityIds.find((id) => targetLayout?.items.some((item) => item.id === id))
-      ?? result.entityIds.find((id) => targetLayout?.routes.some((route) => route.id === id))
-      ?? result.entityIds.find((id) => targetLayout?.turningAreas.some((area) => area.id === id))
-      ?? result.entityIds.find((id) => targetLayout?.openings.some((opening) => opening.id === id))
+    const targetRoom = targetLayout ? getPrimaryRoom(targetLayout) : null
+    const targetFloor = targetLayout ? getPrimaryFloor(targetLayout) : null
+    const fixture = targetRoom?.fixtures.find((candidate) => result.entityIds.includes(candidate.id))
+    const selected = result.entityIds.find((id) => targetRoom?.items.some((item) => item.id === id))
+      ?? fixture?.id
+      ?? result.entityIds.find((id) => targetFloor?.routes.some((route) => route.id === id))
+      ?? result.entityIds.find((id) => targetFloor?.turningAreas.some((area) => area.id === id))
+      ?? result.entityIds.find((id) => targetRoom?.openings.some((opening) => opening.id === id))
       ?? null
+    const isOpening = !!targetRoom?.openings.some((opening) => opening.id === selected)
+    // Fixtures are easiest to judge on their wall; everything else is shown on the plan.
+    if (fixture && selected === fixture.id) { setWall(fixture.wall); setView('wall'); setInspectorTab('fixtures') }
+    else { setView('2d'); setInspectorTab(isOpening || result.ruleId === 'B05' ? 'items' : 'checks') }
     planner.setSelection(selected)
     setPanel(window.innerWidth < 768 ? 'checks' : null)
     window.requestAnimationFrame(() => {
       const mobileOverlay = document.querySelector<HTMLElement>('.mobile-checks-content #overlay-instructions')
-      if (!result.entityIds.length) (mobileOverlay ?? document.getElementById('overlay-instructions'))?.focus()
-      else if (targetLayout?.openings.some((opening) => opening.id === selected)) document.getElementById('room-editor')?.focus()
+      if (isOpening || result.ruleId === 'B05') document.getElementById('room-editor')?.focus()
+      else if (!result.entityIds.length) (mobileOverlay ?? document.getElementById('overlay-instructions'))?.focus()
     })
   }
 
@@ -152,7 +183,7 @@ export function Workspace({ onHome, onNewSetup }: { onHome(): void; onNewSetup()
       layoutId: result.layoutId,
       ...(result.entityIds[0] ? { entityId: result.entityIds[0] } : {}),
       ...text,
-      priority: 'next', workType: 'site-review', status: 'proposed', advisorNote: '', materials: null, labour: null,
+      priority: 'next', workType: 'site-review', status: 'proposed', advisorNote: '', materials: null, labour: null, ruleId: result.ruleId,
     }
     setRecommendationDraft({ projectId: project.id, recommendation })
     planner.setActiveLayout(result.layoutId)
@@ -174,30 +205,72 @@ export function Workspace({ onHome, onNewSetup }: { onHome(): void; onNewSetup()
     if (!result.ok) window.alert(t(locale, result.error.messageKey as Parameters<typeof t>[1]))
   }
 
+  function applyFix(fixId: string, params: FixParams) {
+    const result = planner.commit({ type: 'apply-fix', fixId, params })
+    setFixPreview(null)
+    setExportMessage(result.ok ? t(locale, 'fixApplied') : t(locale, 'fixFailed'))
+  }
+
   function beginPlacement(catalogId: string) {
     if (!canEdit) return
-    const entry = getCatalogEntry(catalogId) ?? CATALOG[9]
+    const entry = resolveCatalogEntry(catalogId)
+    setView('2d')
+    setPickingFallId(null)
     setPlacement({ catalogId, label: entry.label[locale], widthMm: entry.defaultDimensionsMm.width, depthMm: entry.defaultDimensionsMm.depth, heightMm: entry.defaultDimensionsMm.height, finish: 'oak', obstruction: entry.obstruction })
     setPanel(null)
   }
 
   function placeCatalogItem(center: { xMm: number; yMm: number }) {
     if (!placement) return
-    const item: FurnitureItem = {
-      id: `item-${crypto.randomUUID()}`, catalogId: placement.catalogId, label: placement.label, center,
-      width: { valueMm: placement.widthMm, confidence: 'estimated' },
-      depth: { valueMm: placement.depthMm, confidence: 'estimated' },
-      height: { valueMm: placement.heightMm, confidence: 'estimated' },
-      rotationDeg: 0, finish: placement.finish, obstruction: placement.obstruction,
-    }
-    const next = structuredClone(activeLayout)
-    next.items.push(item)
-    const result = planner.commit({ type: 'replace-layout', layoutId: activeLayoutId, layout: next })
+    const item = createCatalogItem(placement.catalogId, `item-${crypto.randomUUID()}`, placement.label, center.xMm, center.yMm, placement.finish)
+    const result = planner.commit({ type: 'replace-layout', layoutId: activeLayoutId, layout: withPrimaryRoom(activeLayout, (value) => ({ ...value, items: [...value.items, item] })) })
     if (!result.ok) return
     setPlacement(null)
     planner.setSelection(item.id)
     if (window.innerWidth < 768) setPanel('inspector')
   }
+
+  function addFixture() {
+    if (!canEdit || room.fixtures.length >= 60) return
+    const entry = FIXTURE_CATALOG.find((candidate) => candidate.kind === newFixture.kind)!
+    const fixture = createFixture(newFixture.kind, newFixture.wall, room, `fixture-${crypto.randomUUID()}`, entry.label[locale])
+    const problem = fixturePositionProblem(fixture, room)
+    if (problem) { setExportMessage(t(locale, problem === 'over-opening' ? 'fixtureOverOpening' : 'fixtureOutsideWall')); return }
+    const result = planner.commit({ type: 'replace-layout', layoutId: activeLayoutId, layout: withPrimaryRoom(activeLayout, (value) => ({ ...value, fixtures: [...value.fixtures, fixture] })) })
+    if (!result.ok) return
+    setExportMessage('')
+    planner.setSelection(fixture.id)
+  }
+
+  // Fall locations are recorded against the CURRENT layout, so picking one shows that plan.
+  function pickFallLocation(fallId: string | null) {
+    setPickingFallId(fallId)
+    if (!fallId) return
+    setPlacement(null)
+    setOverlayTool(null)
+    planner.setActiveLayout('current')
+    setView('2d')
+    setPanel(null)
+  }
+  function placeFall(point: PointMm) {
+    if (!pickingFallId) return
+    const currentRoom = getPrimaryRoom(project.current)
+    planner.commit({ type: 'set-resident', resident: { ...project.resident, falls: project.resident.falls.map((fall) => fall.id === pickingFallId ? { ...fall, roomId: currentRoom.id, point } : fall) } })
+    setPickingFallId(null)
+  }
+
+  const checksContent = <>
+    <BenchmarkBanner locale={locale} />
+    <ChecksPanel results={checkResults} locale={locale} project={project} roomType={room.type} onSelectEntities={selectCheckLocation} onCreateRecommendation={createRecommendationDraft} onPreviewFix={(result, fix) => setFixPreview({ result, fix })} />
+    <OverlayEditor layout={activeLayout} locale={locale} editable={canEdit} onCommit={commitLayout} onStartDrawing={startOverlayDrawing} />
+    {advisorMode && <AdvisorTargets project={project} locale={locale} onCommit={(targets) => { planner.commit({ type: 'set-targets', targets }) }} />}
+    {advisorMode && <BenchmarkPolicy key={`${project.id}-${project.benchmarkPolicy?.primary ?? 'none'}`} project={project} locale={locale} onChange={(primary, chosenBy) => { planner.commit({ type: 'set-benchmark-policy', primary, chosenBy }) }} />}
+  </>
+  const recommendationsContent = <RecommendationsPanel project={project} locale={locale} advisorMode={advisorMode} draft={recommendationDraft?.projectId === project.id ? recommendationDraft.recommendation : null} onDraftConsumed={() => setRecommendationDraft(null)} onSave={saveRecommendation} onDelete={deleteRecommendation} onReview={recordReview} />
+  const tabs: { id: InspectorTab; label: string }[] = [
+    { id: 'items', label: t(locale, 'items') }, { id: 'fixtures', label: t(locale, 'fixtures') }, { id: 'checks', label: t(locale, 'checks') },
+    { id: 'recommendations', label: t(locale, 'recommendations') }, { id: 'resident', label: t(locale, 'resident') },
+  ]
 
   return <div className="planner-shell">
     <header className="app-header">
@@ -210,35 +283,44 @@ export function Workspace({ onHome, onNewSetup }: { onHome(): void; onNewSetup()
         <Button type="button" variant="outline" onClick={onNewSetup}>{t(locale, 'newProject')}</Button>
       </div>
     </header>
+    {planner.upgradedFromV1 && <p className="export-message upgrade-notice" role="status">{t(locale, 'upgradedNotice')} <Button type="button" variant="ghost" onClick={planner.dismissUpgradeNotice}>{t(locale, 'dismiss')}</Button></p>}
     {exportMessage && <p className="export-message" role="status">{exportMessage}</p>}
     <EditorToolbar onHome={onHome} view={view} onViewChange={changeView} viewUnavailable={viewError !== null} />
     <div className="workspace-grid">
-      <aside className="catalog-sidebar"><CatalogPanel locale={locale} onAdd={beginPlacement} editable={canEdit} /></aside>
+      <aside className="catalog-sidebar"><CatalogPanel locale={locale} roomType={room.type} onAdd={beginPlacement} editable={canEdit} /></aside>
       <main className="canvas-column">
-        {view === '3d' ? <RoomView3D key={`${project.id}-${activeLayoutId}`} layout={activeLayout} locale={locale} selectionId={selectionId} onSelect={planner.setSelection} onReady={onSceneReady} onUnavailable={on3dUnavailable} /> : <PlanCanvas layout={activeLayout} locale={locale} selectionId={selectionId} routeTargetMm={project.targets.routeWidth?.valueMm} turningTargetMm={project.targets.turningDiameter?.valueMm} placement={placement} overlayTool={overlayTool} onSelect={planner.setSelection} onCommitLayout={commitLayout} onPlace={placeCatalogItem} onCancelPlacement={() => setPlacement(null)} onPlaceRoute={placeRoute} onPlaceTurning={placeTurning} onCancelOverlay={() => setOverlayTool(null)} />}
+        {view === '3d' ? <RoomView3D key={`${project.id}-${activeLayoutId}`} layout={activeLayout} locale={locale} selectionId={selectionId} onSelect={planner.setSelection} onReady={onSceneReady} onUnavailable={on3dUnavailable} />
+          : view === 'wall' ? <WallElevation layout={activeLayout} locale={locale} wall={wall} selectionId={selectionId} resident={project.resident} mobilityAids={project.household.mobilityAids} editable={canEdit} onWallChange={setWall} onSelect={(id) => { planner.setSelection(id); if (id) setInspectorTab('fixtures') }} onCommitLayout={commitLayout} />
+            : <PlanCanvas layout={activeLayout} locale={locale} selectionId={selectionId} routeTargetMm={project.targets.routeWidth?.valueMm} turningTargetMm={project.targets.turningDiameter?.valueMm} placement={placement} overlayTool={overlayTool} falls={project.resident.falls} pickingFall={pickingFallId !== null} onSelect={(id) => { planner.setSelection(id); if (id && room.fixtures.some((fixture) => fixture.id === id)) setInspectorTab('fixtures') }} onCommitLayout={commitLayout} onPlace={placeCatalogItem} onCancelPlacement={() => setPlacement(null)} onPlaceRoute={placeRoute} onPlaceTurning={placeTurning} onCancelOverlay={() => setOverlayTool(null)} onPickFall={placeFall} onCancelPickFall={() => setPickingFallId(null)} onSelectWall={showWall} />}
         {viewError && <div className="view-fallback" role="status">{t(locale, viewError === 'webgl-lost' ? 'webglLost' : 'webglFallback')}</div>}
       </main>
       <aside className="inspector-sidebar">
         <div className="inspector-tabs" role="tablist" aria-label={locale === 'th' ? 'แผงข้อมูล' : 'Inspector'}>
-          <button type="button" role="tab" aria-selected={inspectorTab === 'items'} onClick={() => setInspectorTab('items')}>{t(locale, 'items')}</button>
-          <button type="button" role="tab" aria-selected={inspectorTab === 'checks'} onClick={() => setInspectorTab('checks')}>{t(locale, 'checks')}</button>
-          <button type="button" role="tab" aria-selected={inspectorTab === 'recommendations'} onClick={() => setInspectorTab('recommendations')}>{t(locale, 'recommendations')}</button>
+          {tabs.map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={inspectorTab === tab.id} onClick={() => setInspectorTab(tab.id)}>{tab.label}</button>)}
         </div>
         <div className="inspector-scroll" hidden={inspectorTab !== 'items'}>
-          <section className="item-list-section"><div className="section-heading"><h2>{t(locale, 'items')}</h2><span>{activeLayout.items.length}</span></div>
-            <div className="item-list">{activeLayout.items.map((item) => <button key={item.id} type="button" className={`item-list-row ${selectionId === item.id ? 'active' : ''}`} aria-pressed={selectionId === item.id} onClick={() => planner.setSelection(item.id)}><span className={`mini-item finish-${item.finish}`} /><span><strong>{item.label}</strong><small>{item.width.valueMm} × {item.depth.valueMm} mm</small></span><span aria-hidden="true">›</span></button>)}</div>
+          <section className="item-list-section"><div className="section-heading"><h2>{t(locale, 'items')}</h2><span>{room.items.length}</span></div>
+            <div className="item-list">{room.items.map((item) => <button key={item.id} type="button" className={`item-list-row ${selectionId === item.id ? 'active' : ''}`} aria-pressed={selectionId === item.id} onClick={() => planner.setSelection(item.id)}><span className={`mini-item finish-${item.finish}`} /><span><strong>{item.label}</strong><small>{item.width.valueMm} × {item.depth.valueMm} mm</small></span><span aria-hidden="true">›</span></button>)}</div>
           </section>
-          <ItemInspector key={selectedItem?.id ?? 'none'} item={selectedItem} layout={activeLayout} locale={locale} editable={canEdit} onCommit={commitLayout} onSelect={planner.setSelection} />
-          <RoomEditor layout={activeLayout} locale={locale} editable={canEdit} onCommit={commitLayout} />
-          <div className="later-note"><strong>{t(locale, 'notEvaluated')}</strong><p>{t(locale, 'nextMilestone')}</p></div>
+          <ItemInspector key={selectedItem?.id ?? 'none'} item={selectedItem} layout={activeLayout} locale={locale} editable={canEdit} advisorMode={advisorMode} onCommit={commitLayout} onSelect={planner.setSelection} />
+          <RoomEditor layout={activeLayout} locale={locale} editable={canEdit} advisorMode={advisorMode} selectionId={selectionId} onCommit={commitLayout} onSelect={planner.setSelection} />
         </div>
-        <div className="inspector-scroll" hidden={inspectorTab !== 'checks'}>
-          <ChecksPanel results={checkResults} locale={locale} onSelectEntities={selectCheckLocation} onCreateRecommendation={createRecommendationDraft} />
-          <OverlayEditor layout={activeLayout} locale={locale} editable={canEdit} onCommit={commitLayout} onStartDrawing={startOverlayDrawing} />
-          {planner.mode === 'advisor' && <AdvisorTargets project={project} locale={locale} onCommit={(targets) => { planner.commit({ type: 'set-targets', targets }) }} />}
+        <div className="inspector-scroll" hidden={inspectorTab !== 'fixtures'}>
+          <section className="item-list-section"><div className="section-heading"><h2>{t(locale, 'fixtures')}</h2><span>{room.fixtures.length}</span></div>
+            <p className="helper-text">{t(locale, 'fixturesHelp')}</p>
+            <div className="fixture-add">
+              <label className="field-label">{t(locale, 'fixtureKind')}<select value={newFixture.kind} disabled={!canEdit} onChange={(event) => setNewFixture({ ...newFixture, kind: event.target.value as FixtureKind })}>{FIXTURE_CATALOG.map((entry) => <option key={entry.kind} value={entry.kind}>{entry.label[locale]}</option>)}</select></label>
+              <label className="field-label">{t(locale, 'fixtureWall')}<select value={newFixture.wall} disabled={!canEdit} onChange={(event) => setNewFixture({ ...newFixture, wall: event.target.value as Wall })}>{(Object.keys(WALL_LABELS) as Wall[]).map((value) => <option key={value} value={value}>{t(locale, WALL_LABELS[value])}</option>)}</select></label>
+              <Button type="button" variant="outline" disabled={!canEdit || room.fixtures.length >= 60} onClick={addFixture}>{t(locale, 'addFixture')}</Button>
+            </div>
+            <div className="item-list fixture-list">{room.fixtures.map((fixture) => <button key={fixture.id} type="button" className={`item-list-row ${selectionId === fixture.id ? 'active' : ''}`} aria-pressed={selectionId === fixture.id} onClick={() => planner.setSelection(fixture.id)}><span className="mini-item mini-fixture" /><span><strong>{fixture.label}</strong><small>{t(locale, WALL_LABELS[fixture.wall])} · {fixture.referenceHeight.valueMm} mm</small></span><span aria-hidden="true">›</span></button>)}</div>
+          </section>
+          {selectedFixture ? <FixtureInspector key={selectedFixture.id} fixture={selectedFixture} layout={activeLayout} locale={locale} editable={canEdit} advisorMode={advisorMode} onCommit={commitLayout} onSelect={planner.setSelection} onShowWall={showWall} /> : <section className="inspector-empty"><p>{t(locale, 'selectFixture')}</p></section>}
         </div>
-        <div className="inspector-scroll" hidden={inspectorTab !== 'recommendations'}>
-          <RecommendationsPanel project={project} locale={locale} advisorMode={planner.mode === 'advisor'} draft={recommendationDraft?.projectId === project.id ? recommendationDraft.recommendation : null} onDraftConsumed={() => setRecommendationDraft(null)} onSave={saveRecommendation} onDelete={deleteRecommendation} onReview={recordReview} />
+        <div className="inspector-scroll" hidden={inspectorTab !== 'checks'}>{checksContent}</div>
+        <div className="inspector-scroll" hidden={inspectorTab !== 'recommendations'}>{recommendationsContent}</div>
+        <div className="inspector-scroll" hidden={inspectorTab !== 'resident'}>
+          <ResidentPanel project={project} locale={locale} advisorMode={advisorMode} pickingFallId={pickingFallId} onChange={(resident) => { planner.commit({ type: 'set-resident', resident }) }} onPickLocation={pickFallLocation} />
         </div>
       </aside>
     </div>
@@ -251,9 +333,13 @@ export function Workspace({ onHome, onNewSetup }: { onHome(): void; onNewSetup()
     </nav>
     <Sheet open={panel !== null} onOpenChange={(open) => !open && setPanel(null)}>
       <SheetContent side="left" className="mobile-sheet"><SheetHeader><SheetTitle>{panel === 'catalog' ? t(locale, 'catalog') : panel === 'checks' ? t(locale, 'checksTitle') : panel === 'recommendations' ? t(locale, 'recommendations') : t(locale, 'items')}</SheetTitle></SheetHeader>
-        {panel === 'catalog' ? <CatalogPanel locale={locale} onAdd={beginPlacement} editable={canEdit} /> : panel === 'checks' ? <div className="mobile-checks-content"><ChecksPanel results={checkResults} locale={locale} onSelectEntities={selectCheckLocation} onCreateRecommendation={createRecommendationDraft} /><OverlayEditor layout={activeLayout} locale={locale} editable={canEdit} onCommit={commitLayout} onStartDrawing={startOverlayDrawing} />{planner.mode === 'advisor' && <AdvisorTargets project={project} locale={locale} onCommit={(targets) => { planner.commit({ type: 'set-targets', targets }) }} />}</div> : panel === 'recommendations' ? <RecommendationsPanel project={project} locale={locale} advisorMode={planner.mode === 'advisor'} draft={recommendationDraft?.projectId === project.id ? recommendationDraft.recommendation : null} onDraftConsumed={() => setRecommendationDraft(null)} onSave={saveRecommendation} onDelete={deleteRecommendation} onReview={recordReview} /> : <div className="mobile-inspector-list">{activeLayout.items.map((item) => <button key={item.id} type="button" className="item-list-row" onClick={() => { planner.setSelection(item.id); setPanel(null) }}>{item.label} · {item.width.valueMm} mm</button>)}</div>}
+        {panel === 'catalog' ? <CatalogPanel locale={locale} roomType={room.type} onAdd={beginPlacement} editable={canEdit} />
+          : panel === 'checks' ? <div className="mobile-checks-content">{checksContent}</div>
+            : panel === 'recommendations' ? recommendationsContent
+              : <div className="mobile-inspector-list">{room.items.map((item) => <button key={item.id} type="button" className="item-list-row" onClick={() => { planner.setSelection(item.id); setPanel(null) }}>{item.label} · {item.width.valueMm} mm</button>)}</div>}
       </SheetContent>
     </Sheet>
-    {reportSnapshot && <ReportPreview data={reportSnapshot.data} locale={reportSnapshot.locale} pngUrl={reportSnapshot.pngUrl} onClose={() => setReportSnapshot(null)} />}
+    {reportOpen && reportData && <ReportPreview data={reportData} locale={reportOpen.locale} pngUrl={reportOpen.pngUrl} onClose={() => setReportOpen(null)} onToggleFallHistory={(includeFallHistory) => { planner.commit({ type: 'set-report-options', includeFallHistory }) }} />}
+    {fixPreview && <FixPreview project={project} fix={fixPreview.fix} result={fixPreview.result} locale={locale} onApply={applyFix} onClose={() => setFixPreview(null)} />}
   </div>
 }

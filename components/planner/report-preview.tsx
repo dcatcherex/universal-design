@@ -8,7 +8,12 @@ import { createPlanSvg } from '@/lib/planner/exports/plan-svg'
 import { formatBahtAmount } from '@/lib/planner/recommendations'
 import { t, type MessageKey } from '@/lib/planner/i18n'
 import type { ReportData, ReportPlan } from '@/lib/planner/exports/report-data'
+import { getPrimaryRoom } from '@/lib/planner/layout-access'
+import { getBenchmarkValues, hasValue } from '@/lib/planner/standards/benchmarks'
 import type { Locale } from '@/lib/planner/types'
+import { BENCHMARK_NAME, benchmarkValueText, outcomeLabel } from './benchmark-verdicts'
+
+const ORIGINS = { geometry: 'originGeometry', 'project-target': 'originProjectTarget', 'custom-overlay': 'originCustomOverlay', manual: 'originManual', benchmark: 'originBenchmark', resident: 'originResident' } as const
 
 function svgDataUrl(svg: string) { return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` }
 function baht(value: number, locale: Locale) { return locale === 'th' ? `${formatBahtAmount(value, locale)} บาท` : `THB ${formatBahtAmount(value, locale)}` }
@@ -16,24 +21,43 @@ function confidence(locale: Locale, value: string) {
   return t(locale, value === 'advisor-verified' ? 'confidenceVerified' : value === 'measured' ? 'confidenceMeasured' : 'confidenceEstimated')
 }
 
-function PlanSection({ plan, locale }: { plan: ReportPlan; locale: Locale }) {
+function PlanSection({ plan, locale, mobilityAids }: { plan: ReportPlan; locale: Locale; mobilityAids: string[] }) {
   if (!plan.layout) return <section className="report-plan"><h2>{plan.label}</h2><p>{t(locale, 'reportNoProposal')}</p></section>
+  const room = getPrimaryRoom(plan.layout)
   const svg = createPlanSvg(plan.layout, { locale, layoutLabel: plan.label, showOverlays: true })
+  const context = { roomType: room.type, mobilityAids }
+  const verdictRows = plan.checks.flatMap((check) => check.verdicts.map((verdict) => ({ check, verdict })))
   return <section className="report-plan">
     <h2>{plan.label}</h2>
-    <p>{t(locale, 'reportRoomDimensions')}: {plan.layout.room.width.valueMm} × {plan.layout.room.depth.valueMm} × {plan.layout.room.height.valueMm} mm · {confidence(locale, plan.layout.room.width.confidence)} / {confidence(locale, plan.layout.room.depth.confidence)} / {confidence(locale, plan.layout.room.height.confidence)}</p>
-    <Image unoptimized width={1200} height={1000} className="report-plan-image" src={svgDataUrl(svg)} alt={`${plan.label}, ${(plan.layout.room.width.valueMm / 1000).toFixed(2)} × ${(plan.layout.room.depth.valueMm / 1000).toFixed(2)} m`} />
+    <p>{t(locale, 'roomType')}: {t(locale, room.type === 'bathroom' ? 'roomBathroom' : 'roomLiving')}</p>
+    <p>{t(locale, 'reportRoomDimensions')}: {room.shape.width.valueMm} × {room.shape.depth.valueMm} × {room.height.valueMm} mm · {confidence(locale, room.shape.width.confidence)} / {confidence(locale, room.shape.depth.confidence)} / {confidence(locale, room.height.confidence)}</p>
+    <Image unoptimized width={1200} height={1000} className="report-plan-image" src={svgDataUrl(svg)} alt={`${plan.label}, ${(room.shape.width.valueMm / 1000).toFixed(2)} × ${(room.shape.depth.valueMm / 1000).toFixed(2)} m`} />
+    {room.fixtures.length > 0 && <><h3>{t(locale, 'fixtures')}</h3><ul className="report-fixtures">{room.fixtures.map((fixture) => <li key={fixture.id}>{fixture.label} · {t(locale, fixture.wall === 'north' ? 'wallNorth' : fixture.wall === 'south' ? 'wallSouth' : fixture.wall === 'east' ? 'wallEast' : 'wallWest')} · {fixture.referenceHeight.valueMm} mm · {confidence(locale, fixture.referenceHeight.confidence)}</li>)}</ul></>}
+    {verdictRows.length > 0 && <><h3>{t(locale, 'benchmarkComparison')}</h3>
+      <table className="report-verdicts">
+        <thead><tr><th scope="col">{t(locale, 'reportCheck')}</th><th scope="col">{t(locale, 'reportBenchmark')}</th><th scope="col">{t(locale, 'reportClauseValue')}</th><th scope="col">{t(locale, 'recordedValue')}</th><th scope="col">{t(locale, 'checkStatus')}</th></tr></thead>
+        <tbody>{verdictRows.map(({ check, verdict }) => {
+          const value = getBenchmarkValues(verdict.key, context)[verdict.benchmarkId]
+          const definite = verdict.outcome === 'meets' || verdict.outcome === 'does-not-meet'
+          return <tr key={`${check.id}-${verdict.key}-${verdict.benchmarkId}`}>
+            <td>{check.ruleId} · {t(locale, `bk.${verdict.key}` as MessageKey)}{check.nearFall ? ` · ▲ ${t(locale, 'nearFall')}` : ''}</td>
+            <td>{t(locale, BENCHMARK_NAME[verdict.benchmarkId])}</td>
+            <td>{hasValue(value) ? `${value.clause} · ${benchmarkValueText(locale, value)}${verdict.pendingReview ? ` · ${t(locale, 'benchmarkPending')}` : ''}` : value?.notApplicableReason?.[locale] ?? '—'}</td>
+            <td>{verdict.measuredMm !== undefined ? `${verdict.measuredMm} mm` : verdict.measuredValue ?? '—'}</td>
+            <td>{outcomeLabel(locale, verdict.outcome)}{verdict.outcome === 'no-value' || verdict.outcome === 'not-evaluated' ? '' : ` · ${t(locale, definite ? 'verdictDefinite' : 'verdictLikely')}`}</td>
+          </tr>
+        })}</tbody>
+      </table></>}
     <h3>{t(locale, 'reportChecks')}</h3>
     {plan.checks.length ? <ul className="report-check-list">{plan.checks.map((check) => <li key={check.id}>
       <strong>{check.ruleId} · {t(locale, check.status === 'attention' ? 'checkAttention' : check.status === 'clear' ? 'checkClear' : 'checkNotEvaluated')}</strong>
       <p>{t(locale, check.messageKey as MessageKey)}</p>
-      <p>{t(locale, 'checkOrigin')}: {t(locale, check.evidence.origin === 'geometry' ? 'originGeometry' : check.evidence.origin === 'project-target' ? 'originProjectTarget' : check.evidence.origin === 'custom-overlay' ? 'originCustomOverlay' : 'originManual')} · {t(locale, 'confidence')}: {confidence(locale, check.evidence.confidence)}</p>
+      <p>{t(locale, 'checkOrigin')}: {t(locale, ORIGINS[check.evidence.origin])} · {t(locale, 'confidence')}: {confidence(locale, check.evidence.confidence)}</p>
       <p>{t(locale, 'checkLimitation')}: {t(locale, check.evidence.limitationKey as MessageKey)}</p>
     </li>)}</ul> : <p>{t(locale, 'reportNoChecks')}</p>}
   </section>
 }
-
-export function ReportPreview({ data, locale, pngUrl, onClose }: { data: ReportData; locale: Locale; pngUrl: string | null; onClose(): void }) {
+export function ReportPreview({ data, locale, pngUrl, onClose, onToggleFallHistory }: { data: ReportData; locale: Locale; pngUrl: string | null; onClose(): void; onToggleFallHistory?(include: boolean): void }) {
   const reportRef = useRef<HTMLDivElement>(null)
   const [printError, setPrintError] = useState(false)
   async function print() {
@@ -90,8 +114,19 @@ export function ReportPreview({ data, locale, pngUrl, onClose }: { data: ReportD
           <p>{t(locale, 'activities')}: {data.brief.activities.join(', ') || '—'}</p><p>{t(locale, 'mobilityAids')}: {data.brief.mobilityAids.join(', ') || '—'}</p><p>{t(locale, 'concerns')}: {data.brief.concerns.join(', ') || '—'}</p>
           <p>{t(locale, 'assistanceNotes')}: {data.brief.assistanceNotes || '—'}</p><p>{t(locale, 'residentPreferences')}: {data.brief.residentPreferences || '—'}</p><p>{t(locale, 'budget')}: {data.budgetSatang === null ? t(locale, 'budgetUnknown') : baht(data.budgetSatang, locale)}</p>
         </section>
-        <PlanSection plan={data.plans.current} locale={locale} />
-        <PlanSection plan={data.plans.proposed} locale={locale} />
+        <section className="report-resident"><h2>{t(locale, 'reportResidentNeeds')}</h2>
+          <p>{t(locale, 'standingHeightCm')}: {data.residentNeeds.standingHeight ? data.residentNeeds.standingHeight.valueMm / 10 : '—'}</p>
+          <p>{t(locale, 'reachBand')}: {data.residentNeeds.reach ? `–  · ` : '—'}</p>
+          <p>{t(locale, 'wheelchairSize')}: {data.residentNeeds.wheelchair ? ` ×  ` : '—'}</p>
+          {onToggleFallHistory && <label className="choice report-fall-toggle"><input type="checkbox" checked={data.falls !== null} onChange={(event) => onToggleFallHistory(event.target.checked)} />{t(locale, 'includeFallHistory')}</label>}
+          {data.falls !== null ? (data.falls.length ? <ul className="report-falls">{data.falls.map((fall, index) => <li key={fall.id}>{t(locale, 'fallMarker')} {index + 1} · {t(locale, fall.when === 'within-3-months' ? 'fallWithin3' : 'fall3to12')}{fall.note ? ` · ` : ''}</li>)}</ul> : <p>{t(locale, 'fallsNone')}</p>) : <p className="report-image-note">{t(locale, 'fallHistoryOmitted')}</p>}
+        </section>
+        <section className="report-benchmarks"><h2>{t(locale, 'benchmarkData')} {data.benchmarks.datasetVersion}</h2>
+          {data.benchmarks.sources.map((source) => <p key={source.id}><strong>{t(locale, BENCHMARK_NAME[source.benchmarkId])}</strong> — {source.title} ({source.edition}). {source.applicability[locale]}</p>)}
+          <p>{t(locale, 'primaryBenchmark')}: {data.benchmarks.primary ? ` · ` : t(locale, 'primaryBenchmarkNone')}</p>
+        </section>
+        <PlanSection plan={data.plans.current} locale={locale} mobilityAids={data.brief.mobilityAids} />
+        <PlanSection plan={data.plans.proposed} locale={locale} mobilityAids={data.brief.mobilityAids} />
         <section className="report-recommendations"><h2>{t(locale, 'recommendations')}</h2>
           {data.recommendations.length ? <ul>{data.recommendations.map((recommendation) => <li key={recommendation.id}><h3>{recommendation.title}</h3><p>{recommendation.reason}</p><p>{recommendation.action}</p><p>{t(locale, 'recommendationStatus')}: {t(locale, `status${recommendation.status[0].toUpperCase()}${recommendation.status.slice(1)}` as 'statusProposed' | 'statusAccepted' | 'statusDeferred' | 'statusCompleted')} · {t(locale, recommendation.layoutId)}</p>{recommendation.advisorNote && <p>{t(locale, 'recommendationAdvisorNote')}: {recommendation.advisorNote}</p>}
             <p>{t(locale, 'costEstimateMaterials')}: {recommendation.materials ? `${baht(recommendation.materials.lowSatang, locale)}–${baht(recommendation.materials.highSatang, locale)} · ${recommendation.materials.sourceNote} · ${recommendation.materials.estimatedAt.slice(0, 10)}` : t(locale, 'unknownCost')}</p>
@@ -108,7 +143,7 @@ export function ReportPreview({ data, locale, pngUrl, onClose }: { data: ReportD
           <p>{t(locale, 'reviewIdentityNote')}</p>
         </section>
         {pngUrl ? <section className="report-3d"><h2>{t(locale, 'view3d')}</h2><Image unoptimized width={1200} height={900} src={pngUrl} alt={locale === 'th' ? 'ภาพมุมมองสามมิติของห้อง' : 'Three-dimensional room view'} /></section> : <p className="report-image-note">{t(locale, 'reportNoImage')}</p>}
-        <footer className="report-limitations"><p>{t(locale, 'checksTitle')}: {t(locale, 'checksDisclaimer')}</p><p>{t(locale, 'checkLimitGeneral')}</p></footer>
+        <footer className="report-limitations"><p className="report-disclaimer">{data.disclaimer}</p><p>{t(locale, 'checksTitle')}: {t(locale, 'checksDisclaimer')}</p><p>{t(locale, 'checkLimitGeneral')}</p></footer>
       </div>
     </DialogContent>
   </Dialog>

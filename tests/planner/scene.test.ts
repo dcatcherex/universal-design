@@ -1,5 +1,6 @@
 import { Box3, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
+import { getPrimaryRoom } from '../../lib/planner/layout-access'
 import { CATALOG } from '../../lib/planner/catalog'
 import { createExampleProject } from '../../lib/planner/fixtures'
 import { buildFurnitureMesh, buildRoomScene, toWorldPosition } from '../../lib/planner/scene/build-scene'
@@ -47,8 +48,8 @@ describe('shared 3D scene geometry', () => {
     const walls = scene.children.filter((child) => child.name.startsWith('wall-'))
     expect(walls.length).toBeGreaterThanOrEqual(6)
 
-    const doorway = layout.openings.find((opening) => opening.kind === 'door')!
-    const window = layout.openings.find((opening) => opening.kind === 'window')!
+    const doorway = getPrimaryRoom(layout).openings.find((opening) => opening.kind === 'door')!
+    const window = getPrimaryRoom(layout).openings.find((opening) => opening.kind === 'window')!
     for (const wall of walls) {
       const bounds = new Box3().setFromObject(wall)
       const doorOpeningPoint = new Vector3((doorway.offset.valueMm + doorway.width.valueMm / 2) / 1000, doorway.height.valueMm / 2000, -0.06)
@@ -60,7 +61,7 @@ describe('shared 3D scene geometry', () => {
 
   it.each(['north', 'east', 'south', 'west'] as const)('cuts a window through the %s wall at its measured offset and height', (wall) => {
     const layout = structuredClone(createExampleProject(now).current)
-    layout.openings = [{
+    getPrimaryRoom(layout).openings = [{
       id: `window-${wall}`, kind: 'window', wall, offset: { valueMm: 300, confidence: 'measured' },
       width: { valueMm: 900, confidence: 'measured' }, height: { valueMm: 900, confidence: 'measured' },
       sill: { valueMm: 900, confidence: 'measured' }, threshold: { valueMm: 0, confidence: 'measured' },

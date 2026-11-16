@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getPrimaryRoom } from '../../lib/planner/layout-access'
 import { createExampleProject } from '../../lib/planner/fixtures'
 import { commitCommand, createHistory, getReviewStatus, redo, undo } from '../../lib/planner/history'
 
@@ -26,10 +27,10 @@ describe('project history', () => {
   it('treats one committed layout drag as one undo entry', () => {
     const state = createHistory(createExampleProject(now))
     const layout = structuredClone(state.present.current)
-    layout.items[0].center.xMm += 50
+    getPrimaryRoom(layout).items[0].center.xMm += 50
     const moved = commitCommand(state, { type: 'replace-layout', layoutId: 'current', layout }, now)
     expect(moved.ok && moved.value.past).toHaveLength(1)
-    expect(moved.ok && undo(moved.value, now).present.current.items[0].center.xMm).toBe(3000)
+    expect(moved.ok && getPrimaryRoom(undo(moved.value, now).present.current).items[0].center.xMm).toBe(3000)
   })
   it('does not add history for no-op edits or review metadata', () => {
     const state = createHistory(createExampleProject(now))
@@ -40,7 +41,7 @@ describe('project history', () => {
   })
   it('keeps revisions monotonic and marks a reviewed revision outdated after edit and undo', () => {
     const project = createExampleProject(now)
-    project.review = { reviewerName: 'Advisor', reviewedAt: now, projectRevision: 0 }
+    project.review = { reviewerName: 'Advisor', reviewedAt: now, projectRevision: 0, benchmarkDatasetVersion: '2026.10-draft' }
     expect(getReviewStatus(project)).toBe('reviewed')
     let state = createHistory(project)
     const edited = commitCommand(state, { type: 'set-title', title: 'Revised' }, now)

@@ -1,8 +1,10 @@
-import type { FurnitureItem, Opening, PointMm, RectMm, Room } from './types'
+import type { FurnitureItem, Opening, PointMm, RectMm, RoomSpace, Wall, WallFixture } from './types'
 
 const EPSILON = 0.001
 
 export type DoorSector = { hinge: PointMm; radiusMm: number; startAngleDeg: number; sweepDeg: 90 | -90 }
+/** The part of a room the plan geometry needs: its rectangular extent. */
+export type RoomExtent = Pick<RoomSpace, 'shape'>
 
 export function getFootprint(item: FurnitureItem): RectMm {
   const width = item.rotationDeg === 90 || item.rotationDeg === 270 ? item.depth.valueMm : item.width.valueMm
@@ -19,21 +21,31 @@ export function rectanglesOverlap(a: RectMm, b: RectMm): boolean {
   return a.minX < b.maxX - EPSILON && a.maxX > b.minX + EPSILON && a.minY < b.maxY - EPSILON && a.maxY > b.minY + EPSILON
 }
 
-export function isWithinRoom(rect: RectMm, room: Room): boolean {
-  return rect.minX >= -EPSILON && rect.minY >= -EPSILON && rect.maxX <= room.width.valueMm + EPSILON && rect.maxY <= room.depth.valueMm + EPSILON
+export function isWithinRoom(rect: RectMm, room: RoomExtent): boolean {
+  return rect.minX >= -EPSILON && rect.minY >= -EPSILON && rect.maxX <= room.shape.width.valueMm + EPSILON && rect.maxY <= room.shape.depth.valueMm + EPSILON
 }
 
-export function getDoorSector(opening: Opening, room: Room): DoorSector | null {
+/** Swing area inside the room. Sliding doors have none; an outward-opening door swings outside the room. */
+export function getDoorSector(opening: Opening, room: RoomExtent): DoorSector | null {
   if (opening.kind !== 'door' || opening.operation !== 'hinged-in' || !opening.hinge) return null
   const offset = opening.offset.valueMm
   const end = offset + opening.width.valueMm
   const atStart = opening.hinge === 'start'
   switch (opening.wall) {
     case 'north': return { hinge: { xMm: atStart ? offset : end, yMm: 0 }, radiusMm: opening.width.valueMm, startAngleDeg: atStart ? 0 : 180, sweepDeg: atStart ? 90 : -90 }
-    case 'south': return { hinge: { xMm: atStart ? offset : end, yMm: room.depth.valueMm }, radiusMm: opening.width.valueMm, startAngleDeg: atStart ? 0 : 180, sweepDeg: atStart ? -90 : 90 }
+    case 'south': return { hinge: { xMm: atStart ? offset : end, yMm: room.shape.depth.valueMm }, radiusMm: opening.width.valueMm, startAngleDeg: atStart ? 0 : 180, sweepDeg: atStart ? -90 : 90 }
     case 'west': return { hinge: { xMm: 0, yMm: atStart ? offset : end }, radiusMm: opening.width.valueMm, startAngleDeg: atStart ? 90 : 270, sweepDeg: atStart ? -90 : 90 }
-    case 'east': return { hinge: { xMm: room.width.valueMm, yMm: atStart ? offset : end }, radiusMm: opening.width.valueMm, startAngleDeg: atStart ? 90 : 270, sweepDeg: atStart ? 90 : -90 }
+    case 'east': return { hinge: { xMm: room.shape.width.valueMm, yMm: atStart ? offset : end }, radiusMm: opening.width.valueMm, startAngleDeg: atStart ? 90 : 270, sweepDeg: atStart ? 90 : -90 }
   }
+}
+
+/** The arc a door leaf sweeps, for drawing. An outward-opening door sweeps the same quarter circle on the far side of its wall. */
+export function getDoorSwing(opening: Opening, room: RoomExtent): { sector: DoorSector; outward: boolean } | null {
+  if (opening.kind !== 'door' || !opening.hinge) return null
+  if (opening.operation === 'hinged-in') return { sector: getDoorSector(opening, room)!, outward: false }
+  if (opening.operation !== 'hinged-out') return null
+  const inward = getDoorSector({ ...opening, operation: 'hinged-in' }, room)!
+  return { sector: { ...inward, sweepDeg: (inward.sweepDeg === 90 ? -90 : 90) }, outward: true }
 }
 
 function distanceSquared(a: PointMm, b: PointMm): number {
@@ -162,4 +174,48 @@ export function sectorIntersectsRect(sector: DoorSector, rect: RectMm): boolean 
     }
   }
   return false
+}
+
+export function wallLengthMm(room: RoomExtent, wall: Wall): number {
+  return wall === 'north' || wall === 'south' ? room.shape.width.valueMm : room.shape.depth.valueMm
+}
+
+/** How far a fixture reaches along its wall on each side of its centre. A vertical bar only has its own thickness. */
+export function fixtureHalfSpanMm(fixture: WallFixture): number {
+  if (fixture.kind === 'grab-bar-vertical') return (fixture.diameter?.valueMm ?? 40) / 2
+  // A fold-down bar hinges at the wall and points into the room, so along the wall it is only as wide as its bracket.
+  if (fixture.kind === 'grab-bar-fold-down') return 50
+  return fixture.length.valueMm / 2
+}
+
+/** Highest point of a fixture above the floor. */
+export function fixtureTopMm(fixture: WallFixture): number {
+  return fixture.kind === 'grab-bar-vertical' ? fixture.referenceHeight.valueMm + fixture.length.valueMm : fixture.referenceHeight.valueMm
+}
+
+export function fixtureFitsWall(fixture: WallFixture, room: Pick<RoomSpace, 'shape' | 'height'>): boolean {
+  const half = fixtureHalfSpanMm(fixture)
+  return fixture.offset.valueMm - half >= -EPSILON
+    && fixture.offset.valueMm + half <= wallLengthMm(room, fixture.wall) + EPSILON
+    && fixtureTopMm(fixture) <= room.height.valueMm + EPSILON
+}
+
+/**
+ * Where a fixture sits in the plan: the stretch of wall it covers and the floor area it projects over.
+ * Offsets run west to east on the north and south walls, and north to south on the east and west walls.
+ */
+export function getFixtureSpan(fixture: WallFixture, room: RoomExtent): { start: PointMm; end: PointMm; footprint: RectMm } {
+  const half = fixtureHalfSpanMm(fixture)
+  const from = fixture.offset.valueMm - half
+  const to = fixture.offset.valueMm + half
+  // A fold-down bar reaches into the room by its length when lowered.
+  const reach = fixture.kind === 'grab-bar-fold-down' ? fixture.length.valueMm : fixture.projection.valueMm
+  const width = room.shape.width.valueMm
+  const depth = room.shape.depth.valueMm
+  switch (fixture.wall) {
+    case 'north': return { start: { xMm: from, yMm: 0 }, end: { xMm: to, yMm: 0 }, footprint: { minX: from, maxX: to, minY: 0, maxY: reach } }
+    case 'south': return { start: { xMm: from, yMm: depth }, end: { xMm: to, yMm: depth }, footprint: { minX: from, maxX: to, minY: depth - reach, maxY: depth } }
+    case 'west': return { start: { xMm: 0, yMm: from }, end: { xMm: 0, yMm: to }, footprint: { minX: 0, maxX: reach, minY: from, maxY: to } }
+    case 'east': return { start: { xMm: width, yMm: from }, end: { xMm: width, yMm: to }, footprint: { minX: width - reach, maxX: width, minY: from, maxY: to } }
+  }
 }
