@@ -32,22 +32,18 @@ export function createElevationSvg(model: ElevationModel, locale: Locale, option
   const viewWidth = wallX + model.lengthMm + right
   const viewHeight = wallBottom + bottom
   const y = (heightMm: number) => wallBottom - heightMm
-  const bounded = (heightMm: number) => Math.max(0, Math.min(model.heightMm, heightMm))
-  const ticks = Array.from({ length: Math.floor(model.heightMm / 500) + 1 }, (_, index) => index * 500)
-  if (ticks[ticks.length - 1] !== model.heightMm) ticks.push(model.heightMm)
+  const ticks = model.ticks.export
   const wallLabel = t(locale, WALL_LABELS[model.wall])
   const title = escapeXml(`${t(locale, 'wallView')}: ${wallLabel}`)
   const description = escapeXml(`${centimetres(model.lengthMm)} × ${centimetres(model.heightMm)} ${t(locale, 'unitCm')}`)
   const showCheckMarks = options.showCheckMarks !== false
-  const reachLow = model.reachBand ? bounded(model.reachBand.lowMm) : 0
-  const reachHigh = model.reachBand ? bounded(model.reachBand.highMm) : 0
-  const reach = model.reachBand && reachHigh > reachLow ? `<g data-reach-band="true"><rect x="${wallX}" y="${y(reachHigh)}" width="${model.lengthMm}" height="${reachHigh - reachLow}" fill="#75a9c4" fill-opacity=".22"/><text x="${wallX + 20}" y="${Math.max(wallY + 90, y(reachHigh) + 100)}" font-family="sans-serif" font-size="80">${escapeXml(t(locale, 'reachBand'))} ${centimetres(reachLow)}–${centimetres(reachHigh)} ${escapeXml(t(locale, 'unitCm'))}</text><title>${escapeXml(t(locale, 'reachBand'))}: ${centimetres(model.reachBand.lowMm)}–${centimetres(model.reachBand.highMm)} ${escapeXml(t(locale, 'unitCm'))} · ${escapeXml(t(locale, model.reachBand.posture === 'standing' ? 'postureStanding' : 'postureSeated'))}</title></g>` : ''
-  const benchmarks = model.benchmarkBands.map((band, index) => {
-    const low = bounded(band.minMm), high = bounded(band.maxMm)
-    if (high <= low) return ''
+  const reach = model.reachBand?.drawing.export.visible ? `<g data-reach-band="true"><rect x="${wallX}" y="${y(model.reachBand.drawing.export.highMm)}" width="${model.lengthMm}" height="${model.reachBand.drawing.export.highMm - model.reachBand.drawing.export.lowMm}" fill="#75a9c4" fill-opacity=".22"/><text x="${wallX + 20}" y="${model.reachBand.drawing.export.labelYmm}" font-family="sans-serif" font-size="80">${escapeXml(t(locale, 'reachBand'))} ${centimetres(model.reachBand.drawing.export.lowMm)}–${centimetres(model.reachBand.drawing.export.highMm)} ${escapeXml(t(locale, 'unitCm'))}</text><title>${escapeXml(t(locale, 'reachBand'))}: ${centimetres(model.reachBand.lowMm)}–${centimetres(model.reachBand.highMm)} ${escapeXml(t(locale, 'unitCm'))} · ${escapeXml(t(locale, model.reachBand.posture === 'standing' ? 'postureStanding' : 'postureSeated'))}</title></g>` : ''
+  const benchmarks = model.benchmarkBands.map((band) => {
+    const { highMm: high, rectHeightMm, labelYmm, visible } = band.drawing.export
+    if (!visible) return ''
     const label = `${t(locale, BENCHMARK_LABELS[band.benchmarkId])} ${centimetres(band.minMm)}–${centimetres(band.maxMm)} ${t(locale, 'unitCm')}`
     const details = `${label} · ${band.clause}${band.pendingReview ? ` · ${t(locale, 'benchmarkPending')}` : ''}`
-    return `<g data-benchmark-id="${escapeXml(band.benchmarkId)}"><rect x="${wallX}" y="${y(high)}" width="${model.lengthMm}" height="${Math.max(high - low, 6)}" fill="${band.benchmarkId === 'th-public-building' ? '#d4b86a' : '#92aa8d'}" fill-opacity=".24"/><text x="${wallX + 20}" y="${Math.max(wallY + 90, y(high) - 25 - index * 100)}" font-family="sans-serif" font-size="80">${escapeXml(label)}</text><title>${escapeXml(details)}</title></g>`
+    return `<g data-benchmark-id="${escapeXml(band.benchmarkId)}"><rect x="${wallX}" y="${y(high)}" width="${model.lengthMm}" height="${rectHeightMm}" fill="${band.benchmarkId === 'th-public-building' ? '#d4b86a' : '#92aa8d'}" fill-opacity=".24"/><text x="${wallX + 20}" y="${labelYmm}" font-family="sans-serif" font-size="80">${escapeXml(label)}</text><title>${escapeXml(details)}</title></g>`
   }).join('')
   const openings = model.openings.map((opening) => {
     const label = t(locale, opening.kind)
@@ -55,14 +51,14 @@ export function createElevationSvg(model: ElevationModel, locale: Locale, option
     const height = opening.topMm - opening.bottomMm
     const status = showCheckMarks ? options.checkStatuses?.get(opening.id) : undefined
     const outline = status && status.status !== 'clear'
-      ? `<rect x="${wallX + opening.startMm - 24}" y="${y(opening.topMm) - 24}" width="${width + 48}" height="${height + 48}" fill="none" stroke="${status.status === 'attention' ? '#8e2f21' : '#175d91'}" stroke-width="${status.status === 'attention' ? 32 : 26}"${status.status === 'not-evaluated' ? ' stroke-dasharray="9 6"' : ''}/>`
+      ? `<rect x="${wallX + opening.checkOutline.startMm}" y="${y(opening.checkOutline.topMm)}" width="${opening.checkOutline.endMm - opening.checkOutline.startMm}" height="${opening.checkOutline.topMm - opening.checkOutline.bottomMm}" fill="none" stroke="${status.status === 'attention' ? '#8e2f21' : '#175d91'}" stroke-width="${status.status === 'attention' ? 32 : 26}"${status.status === 'not-evaluated' ? ' stroke-dasharray="9 6"' : ''}/>`
       : ''
-    return `<g data-opening-id="${escapeXml(opening.id)}" data-entity-check-status="${status?.status ?? ''}">${outline}<rect x="${wallX + opening.startMm}" y="${y(opening.topMm)}" width="${width}" height="${height}" fill="${opening.kind === 'window' ? '#c9dce5' : '#fffefa'}" stroke="#628c72" stroke-width="14"/><text x="${wallX + opening.startMm + width / 2}" y="${y(opening.topMm) + height / 2}" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="90">${escapeXml(label)}</text>${showCheckMarks ? checkMark(status, opening.id, wallX + opening.endMm, y(opening.topMm), label, locale, 1) : ''}<title>${escapeXml(label)} · ${width} × ${height} mm</title></g>`
+    return `<g data-opening-id="${escapeXml(opening.id)}" data-entity-check-status="${status?.status ?? ''}">${outline}<rect x="${wallX + opening.startMm}" y="${y(opening.topMm)}" width="${width}" height="${height}" fill="${opening.kind === 'window' ? '#c9dce5' : '#fffefa'}" stroke="#628c72" stroke-width="14"/><text x="${wallX + opening.startMm + width / 2}" y="${y(opening.topMm) + height / 2}" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="90">${escapeXml(label)}</text>${showCheckMarks ? checkMark(status, opening.id, wallX + opening.badgePoint.alongMm, y(opening.badgePoint.heightMm), label, locale, 1) : ''}<title>${escapeXml(label)} · ${width} × ${height} mm</title></g>`
   }).join('')
   const silhouettes = model.silhouettes.map((item) => {
-    const start = Math.max(0, item.startMm), end = Math.min(model.lengthMm, item.endMm)
-    if (end <= start) return ''
-    return `<g data-silhouette-id="${escapeXml(item.id)}"><rect x="${wallX + start}" y="${y(item.topMm)}" width="${end - start}" height="${item.topMm}" rx="30" fill="#718078" fill-opacity=".18" stroke="#587064" stroke-width="12" stroke-dasharray="50 34"/><text x="${wallX + (start + end) / 2}" y="${y(item.topMm / 2)}" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="80">${escapeXml(item.label)}</text><title>${escapeXml(item.label)}</title></g>`
+    const { startMm: start, endMm: end, centerMm, visible } = item.drawing.export
+    if (!visible) return ''
+    return `<g data-silhouette-id="${escapeXml(item.id)}"><rect x="${wallX + start}" y="${y(item.topMm)}" width="${end - start}" height="${item.topMm}" rx="30" fill="#718078" fill-opacity=".18" stroke="#587064" stroke-width="12" stroke-dasharray="50 34"/><text x="${wallX + centerMm}" y="${y(item.topMm / 2)}" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="80">${escapeXml(item.label)}</text><title>${escapeXml(item.label)}</title></g>`
   }).join('')
   const fixtures = model.fixtures.map((fixture) => {
     const width = fixture.endMm - fixture.startMm
@@ -70,9 +66,9 @@ export function createElevationSvg(model: ElevationModel, locale: Locale, option
     const label = escapeXml(fixture.label)
     const status = showCheckMarks ? options.checkStatuses?.get(fixture.id) : undefined
     const outline = status && status.status !== 'clear'
-      ? `<rect x="${wallX + fixture.startMm - 24}" y="${y(fixture.topMm) - 24}" width="${width + 48}" height="${height + 48}" fill="none" stroke="${status.status === 'attention' ? '#8e2f21' : '#175d91'}" stroke-width="${status.status === 'attention' ? 32 : 26}"${status.status === 'not-evaluated' ? ' stroke-dasharray="9 6"' : ''}/>`
+      ? `<rect x="${wallX + fixture.checkOutline.startMm}" y="${y(fixture.checkOutline.topMm)}" width="${fixture.checkOutline.endMm - fixture.checkOutline.startMm}" height="${fixture.checkOutline.topMm - fixture.checkOutline.bottomMm}" fill="none" stroke="${status.status === 'attention' ? '#8e2f21' : '#175d91'}" stroke-width="${status.status === 'attention' ? 32 : 26}"${status.status === 'not-evaluated' ? ' stroke-dasharray="9 6"' : ''}/>`
       : ''
-    return `<g data-fixture-id="${escapeXml(fixture.id)}" data-entity-check-status="${status?.status ?? ''}">${outline}<rect x="${wallX + fixture.startMm}" y="${y(fixture.topMm)}" width="${width}" height="${height}" rx="12" fill="#2f6f8f" fill-opacity=".82" stroke="#21382d" stroke-width="10"/><text x="${wallX + (fixture.startMm + fixture.endMm) / 2}" y="${y(fixture.topMm) - 35}" text-anchor="middle" font-family="sans-serif" font-size="80">${label}</text>${showCheckMarks ? checkMark(status, fixture.id, wallX + fixture.endMm, y(fixture.topMm), fixture.label, locale, 1) : ''}<title>${label} · ${fixture.referenceHeightMm} mm</title></g>`
+    return `<g data-fixture-id="${escapeXml(fixture.id)}" data-entity-check-status="${status?.status ?? ''}">${outline}<rect x="${wallX + fixture.startMm}" y="${y(fixture.topMm)}" width="${width}" height="${height}" rx="12" fill="#2f6f8f" fill-opacity=".82" stroke="#21382d" stroke-width="10"/><text x="${wallX + (fixture.startMm + fixture.endMm) / 2}" y="${y(fixture.topMm) - 35}" text-anchor="middle" font-family="sans-serif" font-size="80">${label}</text>${showCheckMarks ? checkMark(status, fixture.id, wallX + fixture.badgePoint.alongMm, y(fixture.badgePoint.heightMm), fixture.label, locale, 1) : ''}<title>${label} · ${fixture.referenceHeightMm} mm</title></g>`
   }).join('')
   const heightScale = `<g class="elevation-height-scale">${ticks.map((mm) => `<g><line x1="${wallX - 18}" y1="${y(mm)}" x2="${wallX + model.lengthMm}" y2="${y(mm)}" stroke="#68705a" stroke-opacity=".22" stroke-width="5"/><line x1="${wallX - 18}" y1="${y(mm)}" x2="${wallX + 8}" y2="${y(mm)}" stroke="#68705a" stroke-width="8"/><text x="${wallX - 35}" y="${y(mm)}" text-anchor="end" dominant-baseline="central" font-family="sans-serif" font-size="90">${centimetres(mm)}</text></g>`).join('')}<text x="${wallX - 190}" y="${wallY + model.heightMm / 2}" transform="rotate(-90 ${wallX - 190} ${wallY + model.heightMm / 2})" text-anchor="middle" font-family="sans-serif" font-size="80">${escapeXml(t(locale, 'unitCm'))}</text></g>`
   const checkLegend = showCheckMarks ? `<g class="check-mark-legend" font-family="sans-serif" font-size="52" font-weight="700"><path d="M${wallX} ${wallBottom + 78} l28 52 h-56 z" fill="#8e2f21"/><text x="${wallX + 42}" y="${wallBottom + 120}" fill="#8e2f21">${escapeXml(t(locale, 'checkMarkerLegendAttention'))}</text><rect x="${wallX + 470}" y="${wallBottom + 72}" width="48" height="48" rx="10" fill="#175d91" stroke-dasharray="5 3"/><text x="${wallX + 530}" y="${wallBottom + 120}" fill="#175d91">${escapeXml(t(locale, 'checkMarkerLegendNotEvaluated'))}</text></g>` : ''

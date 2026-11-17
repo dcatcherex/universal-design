@@ -2,14 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent } from 'react'
 import { Button } from '@/components/ui/button'
-import { getFixtureSpan, getFootprint } from '@/lib/planner/geometry'
+import { getFootprint } from '@/lib/planner/geometry'
 import { isFurnitureWithinRoom, moveFurnitureInLayout, snapToGridMm } from '@/lib/planner/furniture-movement'
-import { getPrimaryFloor, getPrimaryRoom, toRoomPoint } from '@/lib/planner/layout-access'
-import { buildPlanAnnotations } from '@/lib/planner/plan-annotations'
-import { buildPlanDrawing, PLAN_WALL_THICKNESS_MM, planSymbol, type PlanSymbolMark } from '@/lib/planner/plan-drawing'
-import { buildPlanDimensions, PLAN_DIMENSION_MARGIN_MM } from '@/lib/planner/plan-dimensions'
+import { getPrimaryFloor, getPrimaryRoom } from '@/lib/planner/layout-access'
+import { buildPlanScene, type PlanScenePrimitive, type PlanSymbolMark } from '@/lib/planner/plan-scene'
 import { PLAN_PALETTE } from '@/lib/planner/plan-palette'
-import { buildPlanSchedule } from '@/lib/planner/plan-schedule'
 import { getEntityStatuses, type EntityCheckStatus } from '@/lib/planner/checks'
 import type { CheckResult, FallRecord, FurnitureItem, Layout, LayoutId, Locale, PointMm, Project, Wall } from '@/lib/planner/types'
 import { t, type MessageKey } from '@/lib/planner/i18n'
@@ -42,6 +39,7 @@ type Props = {
   onSelectWall?(wall: Wall): void
 }
 type Preview = { id: string; xMm: number; yMm: number }
+type ItemPrimitive = Extract<PlanScenePrimitive, { kind: 'item' }>
 
 function SymbolMarks({ marks }: { marks: PlanSymbolMark[] }) {
   return <>{marks.map((mark, index) => mark.kind === 'rect'
@@ -53,36 +51,32 @@ function SymbolMarks({ marks }: { marks: PlanSymbolMark[] }) {
         : <path key={index} d={mark.d} vectorEffect="non-scaling-stroke" />)}</>
 }
 
-function FurnitureShape({ item, itemNumber, selected, highlighted, xMm, yMm, scale, onPointerDown, onKeyDown, onKeyUp, label, checkStatus, checkMarksVisible, locale, onSelectCheckResult }: {
-  item: FurnitureItem; itemNumber: number; selected: boolean; highlighted: boolean; xMm: number; yMm: number; scale: number; onPointerDown(event: ReactPointerEvent<SVGGElement>, item: FurnitureItem): void;
-  onKeyDown(event: KeyboardEvent<SVGGElement>, item: FurnitureItem): void; onKeyUp(event: KeyboardEvent<SVGGElement>, item: FurnitureItem): void; label: string; checkStatus?: EntityCheckStatus; checkMarksVisible: boolean; locale: Locale; onSelectCheckResult(resultId: string): void
+function FurnitureShape({ primitive, highlighted, scale, onPointerDown, onKeyDown, onKeyUp, locale, onSelectCheckResult }: {
+  primitive: ItemPrimitive; highlighted: boolean; scale: number; onPointerDown(event: ReactPointerEvent<SVGGElement>, item: FurnitureItem): void;
+  onKeyDown(event: KeyboardEvent<SVGGElement>, item: FurnitureItem): void; onKeyUp(event: KeyboardEvent<SVGGElement>, item: FurnitureItem): void; locale: Locale; onSelectCheckResult(resultId: string): void
 }) {
+  const { entity: item, itemNumber, selected, geometry, symbol, checkStatus } = primitive
+  const { center, localFootprint, badgePoints } = geometry
   const width = item.rotationDeg % 180 === 0 ? item.width.valueMm : item.depth.valueMm
   const depth = item.rotationDeg % 180 === 0 ? item.depth.valueMm : item.width.valueMm
   const className = item.obstruction === 'rug' ? 'plan-rug' : `plan-item finish-${item.finish}`
-  const marks = planSymbol(item.catalogId)
-  const angle = item.rotationDeg * Math.PI / 180
-  const badgeX = xMm + item.width.valueMm / 2 * Math.cos(angle) + item.depth.valueMm / 2 * Math.sin(angle)
-  const badgeY = yMm + item.width.valueMm / 2 * Math.sin(angle) - item.depth.valueMm / 2 * Math.cos(angle)
   return <>
   <g
-    role="button" tabIndex={0} aria-label={label} aria-pressed={selected}
-    data-item-id={item.id} data-item-number={itemNumber} data-x-mm={xMm} data-y-mm={yMm} data-rotation={item.rotationDeg} data-entity-check-status={checkMarksVisible ? checkStatus?.status : undefined}
+    role="button" tabIndex={0} aria-label={`${item.label}, ${item.width.valueMm} by ${item.depth.valueMm} mm`} aria-pressed={selected}
+    data-item-id={item.id} data-item-number={itemNumber} data-x-mm={center.xMm} data-y-mm={center.yMm} data-rotation={item.rotationDeg} data-entity-check-status={checkStatus?.status}
     className={`${className} ${selected ? 'selected' : ''} ${highlighted ? 'changed' : ''}`}
-    transform={`translate(${xMm} ${yMm}) rotate(${item.rotationDeg})`}
+    transform={`translate(${center.xMm} ${center.yMm}) rotate(${item.rotationDeg})`}
     onPointerDown={(event) => onPointerDown(event, item)} onKeyDown={(event) => onKeyDown(event, item)} onKeyUp={(event) => onKeyUp(event, item)}
   >
-    <rect className="item-footprint" x={-item.width.valueMm / 2} y={-item.depth.valueMm / 2} width={item.width.valueMm} height={item.depth.valueMm} pointerEvents="all" />
-    <g className="item-symbol" transform={`translate(${-item.width.valueMm / 2} ${-item.depth.valueMm / 2}) scale(${item.width.valueMm} ${item.depth.valueMm})`}><SymbolMarks marks={marks} /></g>
-    <text className="plan-item-number" textAnchor="middle" dominantBaseline="central" x={0} y={-item.depth.valueMm / 2 - 100 * scale} transform={`rotate(${-item.rotationDeg} 0 ${-item.depth.valueMm / 2 - 100 * scale})`} aria-hidden="true" pointerEvents="none">{itemNumber}</text>
+    <rect className="item-footprint" {...localFootprint} pointerEvents="all" />
+    <g className="item-symbol" transform={`translate(${localFootprint.x} ${localFootprint.y}) scale(${localFootprint.width} ${localFootprint.height})`}><SymbolMarks marks={symbol} /></g>
+    <text className="plan-item-number" textAnchor="middle" dominantBaseline="central" x={0} y={geometry.numberY} transform={`rotate(${-item.rotationDeg} 0 ${geometry.numberY})`} aria-hidden="true" pointerEvents="none">{itemNumber}</text>
     {/* The label stays upright and below the piece whatever its rotation. */}
-    <text textAnchor="middle" dominantBaseline="central" transform={`rotate(${-item.rotationDeg})`} y={depth / 2 + 100 * scale}>{item.label}</text>
-    {checkMarksVisible && checkStatus && checkStatus.status !== 'clear' && <>
-      <rect className={`check-marker-outline check-marker-outline-${checkStatus.status}`} x={-item.width.valueMm / 2 - 45 * scale} y={-item.depth.valueMm / 2 - 45 * scale} width={item.width.valueMm + 90 * scale} height={item.depth.valueMm + 90 * scale} rx={24 * scale} pointerEvents="none" />
-    </>}
+    <text textAnchor="middle" dominantBaseline="central" transform={`rotate(${-item.rotationDeg})`} y={geometry.labelY}>{item.label}</text>
+    {checkStatus && checkStatus.status !== 'clear' && <rect className={`check-marker-outline check-marker-outline-${checkStatus.status}`} {...geometry.checkOutline} rx={24 * scale} pointerEvents="none" />}
     <title>{`${item.label} · ${width} × ${depth} mm`}</title>
   </g>
-    {checkMarksVisible && checkStatus && checkStatus.status !== 'clear' && <g transform={`translate(${badgeX} ${badgeY}) rotate(${-item.rotationDeg})`}><CheckMarkBadge status={checkStatus} entityId={item.id} entityLabel={item.label} locale={locale} x={0} y={0} size={400 * scale} onActivate={onSelectCheckResult} /></g>}
+    {checkStatus && checkStatus.status !== 'clear' && <g transform={`translate(${badgePoints.world.xMm} ${badgePoints.world.yMm})`}><CheckMarkBadge status={checkStatus} entityId={item.id} entityLabel={item.label} locale={locale} x={0} y={0} size={400 * scale} onActivate={onSelectCheckResult} /></g>}
   </>
 }
 
@@ -100,18 +94,6 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
   const room = getPrimaryRoom(layout)
   const floor = getPrimaryFloor(layout)
   const width = room.shape.width.valueMm, depth = room.shape.depth.valueMm
-  const annotations = buildPlanAnnotations(room, {
-    roomType: t(locale, room.type === 'bathroom' ? 'roomBathroom' : 'roomLiving'),
-    planNorth: t(locale, 'planNorth'),
-    scaleBar: t(locale, 'scaleBar'),
-  })
-  const drawing = buildPlanDrawing(room)
-  const schedule = buildPlanSchedule(room)
-  const itemNumbers = new Map(schedule.items.map((entry) => [entry.id, entry.number]))
-  const selectedItem = room.items.find((item) => item.id === selectionId)
-  const selectedDimensionItem = selectedItem && preview?.id === selectedItem.id
-    ? { ...selectedItem, center: { xMm: preview.xMm, yMm: preview.yMm } }
-    : selectedItem
   const activeResults = moveFeedback.preview?.results ?? checkResults
   const checkStatuses = useMemo(() => moveFeedback.preview ? getEntityStatuses(activeResults) : baseCheckStatuses, [activeResults, baseCheckStatuses, moveFeedback.preview])
   const roomCheckResults = moveFeedback.preview ? activeResults.filter((result) => result.entityIds.length === 0) : baseRoomCheckResults
@@ -119,8 +101,32 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
   const roomPendingResults = roomCheckResults.filter((result) => result.status === 'not-evaluated')
   const previewItem = preview && preview.id !== '__placement__' ? room.items.find((item) => item.id === preview.id) : undefined
   const previewOutside = !!(previewItem && preview && outsideRoom({ ...previewItem, center: { xMm: preview.xMm, yMm: preview.yMm } }))
-  // Line weights and labels are sized for a 6 m room; smaller rooms scale them down so a bathroom stays legible.
-  const scale = Math.max(0.4, Math.min(1, Math.max(width, depth) / 6000))
+  const scene = buildPlanScene(layout, {
+    locale,
+    showOverlays: true,
+    showDimensions,
+    showCheckMarks,
+    checkStatuses,
+    roomCheckResults,
+    selectedItemId: selectionId,
+    selectedEntityId: selectionId,
+    movePreview: preview && preview.id !== '__placement__' ? preview : null,
+    routeTargetMm,
+    turningTargetMm,
+  })
+  const scale = scene.scale
+  const annotations = scene.primitives.find((primitive) => primitive.kind === 'annotation')!.geometry
+  const schedule = scene.schedule
+  const wallPrimitives = scene.primitives.filter((primitive) => primitive.kind === 'wall')
+  const wetZonePrimitives = scene.primitives.filter((primitive) => primitive.kind === 'wet-zone')
+  const routePrimitives = scene.primitives.filter((primitive) => primitive.kind === 'route')
+  const turningPrimitives = scene.primitives.filter((primitive) => primitive.kind === 'turning-area')
+  const openingPrimitives = scene.primitives.filter((primitive) => primitive.kind === 'opening')
+  const fixturePrimitives = scene.primitives.filter((primitive) => primitive.kind === 'fixture')
+  const itemPrimitives = scene.primitives.filter((primitive) => primitive.kind === 'item')
+  const dimensionPrimitives = scene.primitives.filter((primitive) => primitive.kind === 'dimension')
+  const wallLines = scene.wallLines
+  const wallName = (wall: Wall) => t(locale, wall === 'north' ? 'wallNorth' : wall === 'south' ? 'wallSouth' : wall === 'east' ? 'wallEast' : 'wallWest')
   const snap = snapToGridMm
 
   useEffect(() => {
@@ -269,43 +275,20 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
     commitMovedItem({ ...item, center: { xMm: pending.xMm, yMm: pending.yMm } })
   }
 
-  const openingGaps = drawing.openings.map(({ opening, windowLines, doorLeaf, swingPath, outward, slidingArrow }) => {
-    const selected = selectionId === opening.id
-    const status = checkStatuses.get(opening.id)
-    const start = opening.offset.valueMm, end = start + opening.width.valueMm
-    const openingBox = opening.wall === 'north'
-      ? { x: start, y: -PLAN_WALL_THICKNESS_MM, width: opening.width.valueMm, height: PLAN_WALL_THICKNESS_MM }
-      : opening.wall === 'south'
-        ? { x: start, y: depth, width: opening.width.valueMm, height: PLAN_WALL_THICKNESS_MM }
-        : opening.wall === 'west'
-          ? { x: -PLAN_WALL_THICKNESS_MM, y: start, width: PLAN_WALL_THICKNESS_MM, height: opening.width.valueMm }
-          : { x: width, y: start, width: PLAN_WALL_THICKNESS_MM, height: opening.width.valueMm }
-    const badgePoint = opening.wall === 'north' ? { x: end, y: -PLAN_WALL_THICKNESS_MM }
-      : opening.wall === 'south' ? { x: end, y: depth + PLAN_WALL_THICKNESS_MM }
-        : opening.wall === 'west' ? { x: -PLAN_WALL_THICKNESS_MM, y: end }
-          : { x: width + PLAN_WALL_THICKNESS_MM, y: start }
-    const label = opening.kind === 'door' ? t(locale, 'door') : t(locale, 'window')
-    return <g key={opening.id} role="group" data-opening-id={opening.id} data-entity-check-status={showCheckMarks ? status?.status : undefined} className={`${selected ? 'opening-selected' : ''} ${highlightIds.includes(opening.id) ? 'changed' : ''}`} aria-label={label}>
-      {showCheckMarks && status && status.status !== 'clear' && <rect {...openingBox} className={`check-marker-outline check-marker-outline-${status.status}`} pointerEvents="none" />}
+  const openingGaps = openingPrimitives.map((primitive) => {
+    const { entity: opening, geometry, selected, checkStatus, label } = primitive
+    const { drawing: openingDrawing, outline, badge } = geometry
+    const { windowLines, doorLeaf, swingPath, outward, slidingArrow } = openingDrawing
+    return <g key={opening.id} role="group" data-opening-id={opening.id} data-entity-check-status={checkStatus?.status} className={`${selected ? 'opening-selected' : ''} ${highlightIds.includes(opening.id) ? 'changed' : ''}`} aria-label={label}>
+      {checkStatus && checkStatus.status !== 'clear' && <rect {...outline} className={`check-marker-outline check-marker-outline-${checkStatus.status}`} pointerEvents="none" />}
       {swingPath && <path d={swingPath} fill="none" className={`door-swing ${outward ? 'door-swing-out' : ''}`} />}
       {doorLeaf && <line {...doorLeaf} className={`opening-line door-leaf ${outward ? 'door-leaf-out' : ''}`} />}
       {windowLines.map((line, index) => <line key={index} {...line} className="window-line" />)}
       {slidingArrow && <path d={slidingArrow} className="sliding-arrow" />}
-      {showCheckMarks && status && <CheckMarkBadge status={status} entityId={opening.id} entityLabel={label} locale={locale} x={badgePoint.x} y={badgePoint.y} size={400 * scale} onActivate={onSelectCheckResult} />}
+      {checkStatus && <CheckMarkBadge status={checkStatus} entityId={opening.id} entityLabel={label} locale={locale} x={badge.xMm} y={badge.yMm} size={400 * scale} onActivate={onSelectCheckResult} />}
     </g>
   })
 
-  const wallLines: { wall: Wall; x1: number; y1: number; x2: number; y2: number }[] = [
-    { wall: 'north', x1: 0, y1: 0, x2: width, y2: 0 }, { wall: 'south', x1: 0, y1: depth, x2: width, y2: depth },
-    { wall: 'west', x1: 0, y1: 0, x2: 0, y2: depth }, { wall: 'east', x1: width, y1: 0, x2: width, y2: depth },
-  ]
-  const wallName = (wall: Wall) => t(locale, wall === 'north' ? 'wallNorth' : wall === 'south' ? 'wallSouth' : wall === 'east' ? 'wallEast' : 'wallWest')
-  const dimensions = showDimensions ? buildPlanDimensions(room, selectedDimensionItem) : []
-  const dimensionDescription = (dimension: (typeof dimensions)[number]) => dimension.kind === 'overall'
-    ? t(locale, dimension.wall === 'north' ? 'overallRoomWidth' : 'overallRoomDepth')
-    : dimension.kind === 'chain'
-      ? `${wallName(dimension.wall)} · ${t(locale, 'wallDimensionChain')}`
-      : `${t(locale, 'clearanceToWall')} · ${wallName(dimension.side ?? dimension.wall)}`
   const busy = !!placement || !!overlayTool || pickingFall
   const style = { '--k': scale } as CSSProperties
 
@@ -321,7 +304,7 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
       </div>
     </div>
     <div className="canvas-stage" ref={stageRef}>
-      <svg ref={svgRef} style={style} role="group" aria-label={`${t(locale, 'roomPlan')} ${(width / 1000).toFixed(1)} × ${(depth / 1000).toFixed(1)} m`} viewBox={`${-PLAN_DIMENSION_MARGIN_MM} ${-PLAN_DIMENSION_MARGIN_MM} ${width + PLAN_DIMENSION_MARGIN_MM * 2} ${depth + PLAN_DIMENSION_MARGIN_MM * 2}`} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onClick={(event) => {
+      <svg ref={svgRef} style={style} role="group" aria-label={`${t(locale, 'roomPlan')} ${(width / 1000).toFixed(1)} × ${(depth / 1000).toFixed(1)} m`} viewBox={`${scene.viewBox.x} ${scene.viewBox.y} ${scene.viewBox.width} ${scene.viewBox.height}`} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onClick={(event) => {
         if (pickingFall) {
           event.stopPropagation()
           const point = modelPoint(event)
@@ -353,74 +336,62 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
         if (!dragRef.current && event.target === event.currentTarget) onSelect(null)
       }}>
         <defs><pattern id="room-grid" width="500" height="500" patternUnits="userSpaceOnUse"><path d="M 500 0 L 0 0 0 500" fill="none" stroke="#d9e1d5" strokeWidth={8 * scale} /></pattern><pattern id="plan-wet-zone-hatch" width="160" height="160" patternUnits="userSpaceOnUse"><rect width="160" height="160" fill="#e8f0f3" /><path d="M -40 40 L40 -40 M0 160 L160 0 M120 200 L200 120" fill="none" stroke={PLAN_PALETTE.wet} strokeWidth={18 * scale} /></pattern><filter id="item-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy={24 * scale} stdDeviation={18 * scale} floodColor="#21382d" floodOpacity=".12" /></filter></defs>
-        {drawing.walls.map((wall, index) => <rect key={index} className="plan-wall" x={wall.x} y={wall.y} width={wall.width} height={wall.height} />)}
+        {wallPrimitives.map((primitive, index) => <rect key={index} className="plan-wall" {...primitive.geometry} />)}
         <rect width={width} height={depth} className="room-floor" />
         <rect width={width} height={depth} fill="url(#room-grid)" />
-        {room.wetZones.map((zone) => <g key={zone.id} data-wet-zone-id={zone.id} className={`wet-zone ${highlightIds.includes(zone.id) ? 'changed' : ''}`} pointerEvents="none">
-          <rect x={zone.rect.minX} y={zone.rect.minY} width={zone.rect.maxX - zone.rect.minX} height={zone.rect.maxY - zone.rect.minY} />
-          <text x={zone.rect.minX + 60 * scale} y={zone.rect.minY + 150 * scale}>{zone.label}</text>
+        {wetZonePrimitives.map((primitive) => <g key={primitive.entityId} data-wet-zone-id={primitive.entityId} className={`wet-zone ${highlightIds.includes(primitive.entityId) ? 'changed' : ''}`} pointerEvents="none">
+          <rect {...primitive.geometry} />
+          <text x={primitive.geometry.x + 60 * scale} y={primitive.geometry.y + 150 * scale}>{primitive.label}</text>
         </g>)}
-        {floor.routes.map((route) => {
-          const widthMm = route.widthMm ?? routeTargetMm ?? null
-          const selected = selectionId === route.id
-          const routePoints = route.points.map((point) => toRoomPoint(room, point))
-          const points = routePoints.map((point) => `${point.xMm},${point.yMm}`).join(' ')
-          const status = checkStatuses.get(route.id)
-          const markerPoint = routePoints[0]
+        {routePrimitives.map((primitive) => {
+          const { entity: route, geometry, selected, checkStatus } = primitive
+          const points = geometry.points.map((point) => `${point.xMm},${point.yMm}`).join(' ')
           return <g key={route.id}>
-            <g role="button" tabIndex={busy ? -1 : 0} aria-label={`${t(locale, 'routeOverlay')}: ${route.label}`} aria-pressed={selected} data-overlay-id={route.id} data-entity-check-status={showCheckMarks ? status?.status : undefined} className={`route-overlay ${selected ? 'selected' : ''}`} pointerEvents={busy ? 'none' : undefined} onClick={(event) => { event.stopPropagation(); onSelect(route.id) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(route.id) } }}>
-            {showCheckMarks && status && status.status !== 'clear' && <polyline points={points} className={`check-marker-outline check-marker-outline-${status.status}`} strokeWidth={64 * scale} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />}
-            <polyline points={points} fill="none" stroke={selected ? PLAN_PALETTE.selection : PLAN_PALETTE.route} strokeOpacity={widthMm === null ? '.75' : '.18'} strokeWidth={widthMm ?? 28 * scale} strokeDasharray={widthMm === null ? `${100 * scale} ${70 * scale}` : undefined} strokeLinecap="round" strokeLinejoin="round" />
+            <g role="button" tabIndex={busy ? -1 : 0} aria-label={`${t(locale, 'routeOverlay')}: ${route.label}`} aria-pressed={selected} data-overlay-id={route.id} data-entity-check-status={checkStatus?.status} className={`route-overlay ${selected ? 'selected' : ''}`} pointerEvents={busy ? 'none' : undefined} onClick={(event) => { event.stopPropagation(); onSelect(route.id) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(route.id) } }}>
+            {checkStatus && checkStatus.status !== 'clear' && <polyline points={points} className={`check-marker-outline check-marker-outline-${checkStatus.status}`} strokeWidth={geometry.checkWidthMm} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />}
+            <polyline points={points} fill="none" stroke={selected ? PLAN_PALETTE.selection : PLAN_PALETTE.route} strokeOpacity={geometry.opacity.canvas} strokeWidth={geometry.widthMm.canvas} strokeDasharray={!geometry.widthKnown.canvas ? `${100 * scale} ${70 * scale}` : undefined} strokeLinecap="round" strokeLinejoin="round" />
             <polyline points={points} fill="none" stroke={selected ? PLAN_PALETTE.selection : PLAN_PALETTE.route} strokeOpacity={selected ? '.95' : '.9'} strokeWidth={(selected ? 32 : 14) * scale} strokeDasharray={`${80 * scale} ${60 * scale}`} strokeLinecap="round" strokeLinejoin="round" />
-            <title>{`${route.label} · ${widthMm === null ? t(locale, 'checkNotEvaluated') : `${widthMm} mm`}`}</title>
+            <title>{`${route.label} · ${primitive.label.canvas}`}</title>
             </g>
-            {showCheckMarks && status && status.status !== 'clear' && <CheckMarkBadge status={status} entityId={route.id} entityLabel={route.label} locale={locale} x={markerPoint.xMm} y={markerPoint.yMm} size={400 * scale} onActivate={onSelectCheckResult} />}
+            {checkStatus && checkStatus.status !== 'clear' && <CheckMarkBadge status={checkStatus} entityId={route.id} entityLabel={route.label} locale={locale} x={geometry.badge.xMm} y={geometry.badge.yMm} size={scene.badgeSizeMm} onActivate={onSelectCheckResult} />}
           </g>
         })}
-        {floor.turningAreas.map((area) => {
-          const diameter = area.diameterMm ?? turningTargetMm ?? null
-          const selected = selectionId === area.id
-          const center = toRoomPoint(room, area.center)
-          const status = checkStatuses.get(area.id)
-          const radius = (diameter ?? 400) / 2
+        {turningPrimitives.map((primitive) => {
+          const { entity: area, geometry, selected, checkStatus, hasDiameter } = primitive
+          const { center } = geometry
+          const radius = geometry.radiusMm.canvas
           return <g key={area.id}>
-            <g role="button" tabIndex={busy ? -1 : 0} aria-label={`${t(locale, 'turningOverlay')}: ${area.label}`} aria-pressed={selected} data-overlay-id={area.id} data-entity-check-status={showCheckMarks ? status?.status : undefined} className={`turning-overlay ${selected ? 'selected' : ''}`} pointerEvents={busy ? 'none' : undefined} onClick={(event) => { event.stopPropagation(); onSelect(area.id) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(area.id) } }}>
-            {showCheckMarks && status && status.status !== 'clear' && <circle cx={center.xMm} cy={center.yMm} r={radius + 70 * scale} className={`check-marker-outline check-marker-outline-${status.status}`} pointerEvents="none" />}
-            <circle cx={center.xMm} cy={center.yMm} r={(diameter ?? 400) / 2} fill={diameter === null ? 'none' : '#75988022'} stroke={selected ? PLAN_PALETTE.selection : PLAN_PALETTE.turning} strokeWidth={(selected ? 38 : 24) * scale} strokeDasharray={`${90 * scale} ${48 * scale}`} />
-            <title>{`${area.label} · ${diameter === null ? t(locale, 'checkNotEvaluated') : `${diameter} mm`}`}</title>
+            <g role="button" tabIndex={busy ? -1 : 0} aria-label={`${t(locale, 'turningOverlay')}: ${area.label}`} aria-pressed={selected} data-overlay-id={area.id} data-entity-check-status={checkStatus?.status} className={`turning-overlay ${selected ? 'selected' : ''}`} pointerEvents={busy ? 'none' : undefined} onClick={(event) => { event.stopPropagation(); onSelect(area.id) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(area.id) } }}>
+            {checkStatus && checkStatus.status !== 'clear' && <circle cx={center.xMm} cy={center.yMm} r={geometry.checkRadiusMm.canvas} className={`check-marker-outline check-marker-outline-${checkStatus.status}`} pointerEvents="none" />}
+            <circle cx={center.xMm} cy={center.yMm} r={radius} fill={hasDiameter.canvas ? '#75988022' : 'none'} stroke={selected ? PLAN_PALETTE.selection : PLAN_PALETTE.turning} strokeWidth={(selected ? 38 : 24) * scale} strokeDasharray={`${90 * scale} ${48 * scale}`} />
+            <title>{`${area.label} · ${hasDiameter.canvas ? `${radius * 2} mm` : t(locale, 'checkNotEvaluated')}`}</title>
             </g>
-            {showCheckMarks && status && status.status !== 'clear' && <CheckMarkBadge status={status} entityId={area.id} entityLabel={area.label} locale={locale} x={center.xMm + radius} y={center.yMm - radius} size={400 * scale} onActivate={onSelectCheckResult} />}
+            {checkStatus && checkStatus.status !== 'clear' && <CheckMarkBadge status={checkStatus} entityId={area.id} entityLabel={area.label} locale={locale} x={geometry.badge.canvas.xMm} y={geometry.badge.canvas.yMm} size={scene.badgeSizeMm} onActivate={onSelectCheckResult} />}
           </g>
         })}
-        {onSelectWall && !busy && wallLines.map(({ wall: side, ...line }) => <line key={side} {...line} className="wall-hit" data-wall={side} role="button" tabIndex={0} aria-label={`${t(locale, 'wallView')}: ${wallName(side)}`} onClick={(event) => { event.stopPropagation(); onSelectWall(side) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectWall(side) } }}><title>{`${t(locale, 'wallView')}: ${wallName(side)}`}</title></line>)}
+        {onSelectWall && !busy && wallLines.map(({ wall: side, line }) => <line key={side} {...line} className="wall-hit" data-wall={side} role="button" tabIndex={0} aria-label={`${t(locale, 'wallView')}: ${wallName(side)}`} onClick={(event) => { event.stopPropagation(); onSelectWall(side) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectWall(side) } }}><title>{`${t(locale, 'wallView')}: ${wallName(side)}`}</title></line>)}
         {openingGaps}
-        {room.fixtures.map((fixture) => {
-          const { footprint } = getFixtureSpan(fixture, room)
-          const selected = selectionId === fixture.id
-          const pad = 16 * scale
-          const grabBar = fixture.kind.startsWith('grab-bar')
-          const fixtureWidth = Math.max(footprint.maxX - footprint.minX, 30 * scale)
-          const fixtureDepth = Math.max(footprint.maxY - footprint.minY, 30 * scale)
-          const status = checkStatuses.get(fixture.id)
+        {fixturePrimitives.map((primitive) => {
+          const { entity: fixture, geometry, selected, styleToken, checkStatus, symbol } = primitive
           return <g key={fixture.id}>
             <g role="button" tabIndex={busy ? -1 : 0} aria-label={`${fixture.label}, ${wallName(fixture.wall)}, ${fixture.referenceHeight.valueMm} mm`} aria-pressed={selected} data-fixture-id={fixture.id} data-fixture-kind={fixture.kind} data-wall={fixture.wall} data-offset-mm={fixture.offset.valueMm} data-height-mm={fixture.referenceHeight.valueMm}
-            data-entity-check-status={showCheckMarks ? status?.status : undefined} className={`plan-fixture ${grabBar ? 'plan-fixture-bar' : ''} ${selected ? 'selected' : ''} ${highlightIds.includes(fixture.id) ? 'changed' : ''}`} pointerEvents={busy ? 'none' : undefined}
+            data-entity-check-status={checkStatus?.status} className={`plan-fixture ${styleToken === 'grab-bar' ? 'plan-fixture-bar' : ''} ${selected ? 'selected' : ''} ${highlightIds.includes(fixture.id) ? 'changed' : ''}`} pointerEvents={busy ? 'none' : undefined}
             onClick={(event) => { event.stopPropagation(); onSelect(fixture.id) }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(fixture.id) } }}>
-            {showCheckMarks && status && status.status !== 'clear' && <rect x={footprint.minX - pad - 28 * scale} y={footprint.minY - pad - 28 * scale} width={fixtureWidth + pad * 2 + 56 * scale} height={fixtureDepth + pad * 2 + 56 * scale} rx={28 * scale} className={`check-marker-outline check-marker-outline-${status.status}`} pointerEvents="none" />}
-            <rect className="fixture-footprint" x={footprint.minX - pad} y={footprint.minY - pad} width={fixtureWidth + pad * 2} height={fixtureDepth + pad * 2} rx={pad} />
-            {fixture.kind === 'basin' && <g className="basin-symbol" transform={`translate(${footprint.minX} ${footprint.minY}) scale(${fixtureWidth} ${fixtureDepth})`}><SymbolMarks marks={planSymbol('basin')} /></g>}
+            {checkStatus && checkStatus.status !== 'clear' && <rect {...geometry.checkOutline} rx={28 * scale} className={`check-marker-outline check-marker-outline-${checkStatus.status}`} pointerEvents="none" />}
+            <rect className="fixture-footprint" {...geometry.shape} rx={16 * scale} />
+            {symbol.length > 0 && <g className="basin-symbol" transform={`translate(${geometry.footprint.minX} ${geometry.footprint.minY}) scale(${geometry.width} ${geometry.height})`}><SymbolMarks marks={symbol} /></g>}
             <title>{`${fixture.label} · ${fixture.referenceHeight.valueMm} mm`}</title>
             </g>
-            {showCheckMarks && status && status.status !== 'clear' && <CheckMarkBadge status={status} entityId={fixture.id} entityLabel={fixture.label} locale={locale} x={footprint.maxX} y={footprint.minY} size={400 * scale} onActivate={onSelectCheckResult} />}
+            {checkStatus && checkStatus.status !== 'clear' && <CheckMarkBadge status={checkStatus} entityId={fixture.id} entityLabel={fixture.label} locale={locale} x={geometry.badge.xMm} y={geometry.badge.yMm} size={scene.badgeSizeMm} onActivate={onSelectCheckResult} />}
           </g>
         })}
         {overlayTool === 'route' && routeDraft.tool === 'route' && routeDraft.points.length > 0 && <polyline className="overlay-draft-route" points={[...routeDraft.points, ...(overlayCursor ? [overlayCursor] : [])].map((point) => `${point.xMm},${point.yMm}`).join(' ')} />}
         {overlayTool === 'route' && routeDraft.tool === 'route' && routeDraft.points.map((point, index) => <circle key={index} className="overlay-draft-point" cx={point.xMm} cy={point.yMm} r={55 * scale}><title>{`${t(locale, 'routePoint')} ${index + 1}`}</title></circle>)}
         {overlayTool === 'turning' && overlayCursor && <circle className="overlay-draft-turning" cx={overlayCursor.xMm} cy={overlayCursor.yMm} r="500" />}
-        {room.items.map((item) => <FurnitureShape key={item.id} item={item} itemNumber={itemNumbers.get(item.id) ?? 0} scale={scale} selected={selectionId === item.id} highlighted={highlightIds.includes(item.id)} xMm={preview?.id === item.id ? preview.xMm : item.center.xMm} yMm={preview?.id === item.id ? preview.yMm : item.center.yMm} onPointerDown={onItemPointerDown} onKeyDown={keyboardMove} onKeyUp={keyboardMoveEnd} label={`${item.label}, ${item.width.valueMm} by ${item.depth.valueMm} mm`} checkStatus={checkStatuses.get(item.id)} checkMarksVisible={showCheckMarks} locale={locale} onSelectCheckResult={onSelectCheckResult} />)}
+        {itemPrimitives.map((primitive) => <FurnitureShape key={primitive.entity.id} primitive={primitive} scale={scale} highlighted={highlightIds.includes(primitive.entity.id)} onPointerDown={onItemPointerDown} onKeyDown={keyboardMove} onKeyUp={keyboardMoveEnd} locale={locale} onSelectCheckResult={onSelectCheckResult} />)}
         <g className="plan-room-annotation" data-plan-annotation="room-label" data-label-x-mm={annotations.roomLabel.point.xMm} data-label-y-mm={annotations.roomLabel.point.yMm} role="img" aria-label={`${annotations.roomLabel.typeLabel}, ${annotations.roomLabel.areaLabel}`} pointerEvents="none">
-          <text className="plan-room-label-type" x={annotations.roomLabel.point.xMm} y={annotations.roomLabel.point.yMm - 75 * scale} textAnchor="middle" dominantBaseline="central">{annotations.roomLabel.typeLabel}</text>
-          <text className="plan-room-label-area" x={annotations.roomLabel.point.xMm} y={annotations.roomLabel.point.yMm + 95 * scale} textAnchor="middle" dominantBaseline="central">{annotations.roomLabel.areaLabel}</text>
+          <text className="plan-room-label-type" x={annotations.roomLabel.point.xMm} y={annotations.roomLabel.typeY} textAnchor="middle" dominantBaseline="central">{annotations.roomLabel.typeLabel}</text>
+          <text className="plan-room-label-area" x={annotations.roomLabel.point.xMm} y={annotations.roomLabel.areaY} textAnchor="middle" dominantBaseline="central">{annotations.roomLabel.areaLabel}</text>
         </g>
         <g className="plan-scale-bar" data-plan-annotation="scale-bar" data-length-mm={annotations.scaleBar.lengthMm} role="img" aria-label={annotations.scaleBar.label} pointerEvents="none">
           <line {...annotations.scaleBar.line} />
@@ -432,8 +403,7 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
           {annotations.northArrow.head.map((line, index) => <line key={index} {...line} />)}
           <text x={annotations.northArrow.labelPoint.xMm} y={annotations.northArrow.labelPoint.yMm} textAnchor="end" dominantBaseline="central">{annotations.northArrow.label}</text>
         </g>
-        {dimensions.map((dimension) => {
-          const description = `${dimensionDescription(dimension)}: ${dimension.label}`
+        {dimensionPrimitives.map(({ geometry: dimension, description }) => {
           const rotate = dimension.labelRotationDeg ? `rotate(${dimension.labelRotationDeg} ${dimension.labelPoint.xMm} ${dimension.labelPoint.yMm})` : undefined
           return <g key={dimension.id} className={`plan-dimension plan-dimension-${dimension.kind}${dimension.kind === 'chain' ? ` plan-dimension-${dimension.wall}` : ''}`} data-dimension-id={dimension.id} data-dimension-kind={dimension.kind} data-dimension-wall={dimension.kind === 'chain' ? dimension.wall : undefined} role="img" aria-label={description}>
             <line className="dimension-stroke" {...dimension.line} vectorEffect="non-scaling-stroke" />
@@ -456,7 +426,7 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
       {moveFeedback.preview && !message && !previewOutside && <div className="move-check-chip" data-testid="move-check-chip" style={{ left: moveFeedback.preview.left, top: moveFeedback.preview.top }} aria-hidden="true">{moveFeedback.preview.attention.length ? `${moveFeedback.preview.attention.length} ${t(locale, moveFeedback.preview.attention.length === 1 ? 'moveNeedsAttentionOne' : 'moveNeedsAttentionMany')}: ${t(locale, moveFeedback.preview.attention[0].messageKey as MessageKey)}` : t(locale, 'moveNoAttention')}</div>}
       <span className="sr-only" data-testid="move-check-live" aria-live="polite">{moveFeedback.announcement}</span>
     </div>
-    <PlanSchedule room={room} locale={locale} selectionId={selectionId} onSelect={onSelect} />
+    <PlanSchedule room={room} schedule={schedule} locale={locale} selectionId={selectionId} onSelect={onSelect} />
     <div className="canvas-legend"><span><i className="legend-furniture" />{locale === 'th' ? 'สิ่งของ' : 'Furniture'}</span><span><i className="legend-route" />{locale === 'th' ? 'แนวทางเดินตัวอย่าง' : 'Illustrative movement corridor'}</span>{floor.turningAreas.length > 0 && <span><i className="legend-turning" />{t(locale, 'turningOverlay')}</span>}{room.fixtures.length > 0 && <span><i className="legend-fixture" />{t(locale, 'fixtures')}</span>}{room.wetZones.length > 0 && <span><i className="legend-wet" />{t(locale, 'wetZone')}</span>}{falls.some((fall) => fall.point) && <span><i className="legend-fall" />{t(locale, 'fallMarker')}</span>}{showCheckMarks && <><span><i className="legend-check-marker legend-check-attention">!</i>{t(locale, 'checkMarkerLegendAttention')}</span><span><i className="legend-check-marker legend-check-not-evaluated">?</i>{t(locale, 'checkMarkerLegendNotEvaluated')}</span></>}<span>{locale === 'th' ? 'กดปุ่มลูกศรเพื่อขยับ 10 มม. · Shift + ลูกศร 50 มม.' : 'Arrow keys move 10 mm · Shift + arrow moves 50 mm'}</span></div>
   </div>
 }

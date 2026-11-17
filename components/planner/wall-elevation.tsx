@@ -146,7 +146,7 @@ export function WallElevation({ layout, locale, wall, selectionId, resident, mob
   }
 
   const wallLabel = t(locale, WALLS.find((entry) => entry.value === wall)!.label)
-  const ticks = Array.from({ length: Math.floor(heightMm / 500) + 1 }, (_, index) => index * 500)
+  const ticks = model.ticks.canvas
   return <div className="canvas-wrap elevation-wrap">
     <div className="canvas-caption">
       <div><p className="eyebrow">{t(locale, 'wallView')}</p><span>{wallLabel} · {(lengthMm / 1000).toFixed(2)} × {(heightMm / 1000).toFixed(2)} m</span></div>
@@ -166,23 +166,21 @@ export function WallElevation({ layout, locale, wall, selectionId, resident, mob
           <text x={lengthMm - 30 * k} y={y(model.reachBand.highMm) + 100 * k} textAnchor="end" fontSize={85 * k}>{t(locale, 'reachBand')} {model.reachBand.lowMm / 10}–{model.reachBand.highMm / 10}</text>
         </g>}
         {model.benchmarkBands.map((band, index) => <g key={band.benchmarkId} className={`elevation-band elevation-band-${index}`} data-testid="benchmark-band" data-benchmark={band.benchmarkId} pointerEvents="none">
-          <rect x={0} y={y(band.maxMm)} width={lengthMm} height={Math.max(band.maxMm - band.minMm, 6)} />
-          <text x={30 * k} y={y(band.maxMm) - 30 * k - index * 100 * k} fontSize={85 * k}>{t(locale, BENCHMARK_NAMES[band.benchmarkId])} {band.clause} · {band.minMm / 10}–{band.maxMm / 10}{band.pendingReview ? ` · ${t(locale, 'benchmarkPending')}` : ''}</text>
+          <rect x={0} y={y(band.drawing.canvas.highMm)} width={lengthMm} height={band.drawing.canvas.rectHeightMm} />
+          <text x={30 * k} y={y(band.drawing.canvas.labelYmm) - band.drawing.canvas.labelOffsetMm * k} fontSize={85 * k}>{t(locale, BENCHMARK_NAMES[band.benchmarkId])} {band.clause} · {band.minMm / 10}–{band.maxMm / 10}{band.pendingReview ? ` · ${t(locale, 'benchmarkPending')}` : ''}</text>
         </g>)}
         {model.openings.map((opening) => {
           const status = checkStatuses.get(opening.id)
-          const boxY = y(opening.topMm)
-          const boxHeight = opening.topMm - opening.bottomMm
           const label = t(locale, opening.kind)
           return <g key={opening.id} data-opening-id={opening.id} data-entity-check-status={showCheckMarks ? status?.status : undefined} className={`elevation-opening elevation-${opening.kind}`} pointerEvents={showCheckMarks && status && status.status !== 'clear' ? undefined : 'none'}>
-          {showCheckMarks && status && status.status !== 'clear' && <rect x={opening.startMm - 24 * k} y={boxY - 24 * k} width={opening.endMm - opening.startMm + 48 * k} height={boxHeight + 48 * k} className={`check-marker-outline check-marker-outline-${status.status}`} />}
+          {showCheckMarks && status && status.status !== 'clear' && <rect x={opening.checkOutline.startMm} y={y(opening.checkOutline.topMm)} width={opening.checkOutline.endMm - opening.checkOutline.startMm} height={opening.checkOutline.topMm - opening.checkOutline.bottomMm} className={`check-marker-outline check-marker-outline-${status.status}`} />}
           <rect x={opening.startMm} y={y(opening.topMm)} width={opening.endMm - opening.startMm} height={opening.topMm - opening.bottomMm} strokeWidth={16 * k} />
-          {showCheckMarks && status && <CheckMarkBadge status={status} entityId={opening.id} entityLabel={label} locale={locale} x={opening.endMm} y={boxY} size={400 * k} onActivate={onSelectCheckResult} />}
+          {showCheckMarks && status && <CheckMarkBadge status={status} entityId={opening.id} entityLabel={label} locale={locale} x={opening.badgePoint.alongMm} y={y(opening.badgePoint.heightMm)} size={400 * k} onActivate={onSelectCheckResult} />}
           <title>{label}</title>
         </g>})}
         {model.silhouettes.map((item) => <g key={item.id} className="elevation-silhouette" pointerEvents="none">
-          <rect x={Math.max(0, item.startMm)} y={y(item.topMm)} width={Math.min(lengthMm, item.endMm) - Math.max(0, item.startMm)} height={item.topMm} rx={30 * k} strokeWidth={10 * k} strokeDasharray={`${50 * k} ${34 * k}`} />
-          <text x={(Math.max(0, item.startMm) + Math.min(lengthMm, item.endMm)) / 2} y={y(item.topMm / 2)} textAnchor="middle" dominantBaseline="central" fontSize={80 * k}>{item.label}</text>
+          <rect x={item.drawing.canvas.startMm} y={y(item.topMm)} width={item.drawing.canvas.endMm - item.drawing.canvas.startMm} height={item.topMm} rx={30 * k} strokeWidth={10 * k} strokeDasharray={`${50 * k} ${34 * k}`} />
+          <text x={item.drawing.canvas.centerMm} y={y(item.topMm / 2)} textAnchor="middle" dominantBaseline="central" fontSize={80 * k}>{item.label}</text>
         </g>)}
         <line x1={-40 * k} y1={heightMm} x2={lengthMm + 40 * k} y2={heightMm} className="elevation-floor" strokeWidth={28 * k} pointerEvents="none" />
         {model.fixtures.map((box) => {
@@ -197,12 +195,12 @@ export function WallElevation({ layout, locale, wall, selectionId, resident, mob
             onPointerDown={(event) => onPointerDown(event, fixture)} onKeyDown={(event) => onKeyDown(event, fixture)}>
             {/* A generous invisible target so thin bars are easy to grab. */}
             <rect className="elevation-hit" x={box.startMm - 60 * k} y={y(box.topMm) - 60 * k} width={box.endMm - box.startMm + 120 * k} height={box.topMm - box.bottomMm + 120 * k} />
-            {showCheckMarks && status && status.status !== 'clear' && <rect x={box.startMm - 24 * k} y={y(box.topMm) - 24 * k} width={box.endMm - box.startMm + 48 * k} height={box.topMm - box.bottomMm + 48 * k} className={`check-marker-outline check-marker-outline-${status.status}`} />}
+            {showCheckMarks && status && status.status !== 'clear' && <rect x={box.checkOutline.startMm} y={y(box.checkOutline.topMm)} width={box.checkOutline.endMm - box.checkOutline.startMm} height={box.checkOutline.topMm - box.checkOutline.bottomMm} className={`check-marker-outline check-marker-outline-${status.status}`} />}
             <rect className="elevation-shape" x={box.startMm - grow / 2} y={y(box.topMm) - grow / 2} width={box.endMm - box.startMm + grow} height={box.topMm - box.bottomMm + grow} rx={grow} strokeWidth={10 * k} />
             {selected && <text x={(box.startMm + box.endMm) / 2} y={y(box.topMm) - 70 * k} textAnchor="middle" fontSize={90 * k} className="elevation-fixture-label" pointerEvents="none">{box.label} · {box.referenceHeightMm / 10} {t(locale, 'unitCm')}</text>}
             <title>{`${box.label} · ${box.referenceHeightMm} mm`}</title>
           </g>
-          {showCheckMarks && status && status.status !== 'clear' && <CheckMarkBadge status={status} entityId={box.id} entityLabel={box.label} locale={locale} x={box.endMm} y={y(box.topMm)} size={400 * k} onActivate={onSelectCheckResult} />}
+          {showCheckMarks && status && status.status !== 'clear' && <CheckMarkBadge status={status} entityId={box.id} entityLabel={box.label} locale={locale} x={box.badgePoint.alongMm} y={y(box.badgePoint.heightMm)} size={400 * k} onActivate={onSelectCheckResult} />}
           </g>
         })}
       </svg>

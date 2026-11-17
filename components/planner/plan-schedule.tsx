@@ -1,16 +1,17 @@
 'use client'
 
-import { buildPlanSchedule } from '@/lib/planner/plan-schedule'
+import { buildPlanSchedule, type PlanSchedule as PlanScheduleModel } from '@/lib/planner/plan-schedule'
 import type { Locale, RoomSpace } from '@/lib/planner/types'
 import { t } from '@/lib/planner/i18n'
 
-export function PlanSchedule({ room, locale, selectionId, onSelect }: {
+export function PlanSchedule({ room, schedule: providedSchedule, locale, selectionId, onSelect }: {
   room: RoomSpace
+  schedule?: PlanScheduleModel
   locale: Locale
   selectionId?: string | null
   onSelect?(id: string): void
 }) {
-  const schedule = buildPlanSchedule(room)
+  const schedule = providedSchedule ?? buildPlanSchedule(room)
   const wallLabel = (wall: typeof schedule.fixtures[number]['wall']) => t(locale, wall === 'north' ? 'wallNorth' : wall === 'east' ? 'wallEast' : wall === 'south' ? 'wallSouth' : 'wallWest')
 
   return <section className="plan-schedule" aria-label={t(locale, 'itemSchedule')}>

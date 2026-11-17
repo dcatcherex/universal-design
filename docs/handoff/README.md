@@ -12,6 +12,10 @@ Read in this order:
 
 The v1 documents below remain the record of the shipped baseline.
 
+## Parallel track: architecture refactor
+
+Before moving logic between modules, or when touching the plan canvas, the plan/elevation exports, entity moves or how benchmark contexts are built, read [architecture refactor](architecture-refactor.md). Package R-A in that plan fixes a live verdict/report mismatch.
+
 ## v1 baseline (complete)
 
 Read in this order:

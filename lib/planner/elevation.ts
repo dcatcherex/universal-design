@@ -6,18 +6,29 @@ import type { BenchmarkId, FixtureKind, ResidentProfile, RoomSpace, Wall, WallFi
 export const SILHOUETTE_DISTANCE_MM = 300
 
 export type ElevationBox = { startMm: number; endMm: number; bottomMm: number; topMm: number }
+export type ElevationCheckGeometry = { startMm: number; endMm: number; bottomMm: number; topMm: number }
+export type ElevationBandDrawing = {
+  canvas: { lowMm: number; highMm: number; rectHeightMm: number; labelYmm: number; labelOffsetMm: number }
+  export: { lowMm: number; highMm: number; rectHeightMm: number; labelYmm: number; visible: boolean }
+}
 export type ElevationModel = {
   wall: Wall
   lengthMm: number
   heightMm: number
-  openings: (ElevationBox & { id: string; kind: 'door' | 'window' })[]
-  fixtures: (ElevationBox & { id: string; kind: FixtureKind; label: string; referenceHeightMm: number })[]
+  openings: (ElevationBox & { id: string; kind: 'door' | 'window'; checkOutline: ElevationCheckGeometry; badgePoint: { alongMm: number; heightMm: number } })[]
+  fixtures: (ElevationBox & { id: string; kind: FixtureKind; label: string; referenceHeightMm: number; checkOutline: ElevationCheckGeometry; badgePoint: { alongMm: number; heightMm: number } })[]
   /** Read-only front outlines of nearby furniture. */
-  silhouettes: (ElevationBox & { id: string; label: string })[]
+  silhouettes: (ElevationBox & { id: string; label: string; drawing: { canvas: { startMm: number; endMm: number; centerMm: number }; export: { startMm: number; endMm: number; centerMm: number; visible: boolean } } })[]
   /** The band the resident can reach comfortably, when recorded. */
-  reachBand: { lowMm: number; highMm: number; posture: 'standing' | 'seated' } | null
+  reachBand: {
+    lowMm: number
+    highMm: number
+    posture: 'standing' | 'seated'
+    drawing: { canvas: { lowMm: number; highMm: number }; export: { lowMm: number; highMm: number; labelYmm: number; visible: boolean } }
+  } | null
   /** Height ranges the benchmarks give for the selected fixture. */
-  benchmarkBands: { benchmarkId: BenchmarkId; key: BenchmarkKey; clause: string; minMm: number; maxMm: number; pendingReview: boolean }[]
+  benchmarkBands: { benchmarkId: BenchmarkId; key: BenchmarkKey; clause: string; minMm: number; maxMm: number; pendingReview: boolean; drawing: ElevationBandDrawing }[]
+  ticks: { canvas: number[]; export: number[] }
 }
 
 /** The benchmark key that governs a fixture's reference height, if any. */
@@ -72,7 +83,17 @@ export function buildElevation(room: RoomSpace, wall: Wall, resident: ResidentPr
     const distance = wall === 'north' ? footprint.minY : wall === 'south' ? depth - footprint.maxY : wall === 'west' ? footprint.minX : width - footprint.maxX
     if (distance > SILHOUETTE_DISTANCE_MM || item.obstruction === 'rug') return []
     const along = wall === 'north' || wall === 'south' ? { startMm: footprint.minX, endMm: footprint.maxX } : { startMm: footprint.minY, endMm: footprint.maxY }
-    return [{ id: item.id, label: item.label, ...along, bottomMm: 0, topMm: item.height.valueMm }]
+    const startMm = along.startMm
+    const endMm = along.endMm
+    const clippedStartMm = Math.max(0, startMm)
+    const clippedEndMm = Math.min(wallLengthMm(room, wall), endMm)
+    return [{
+      id: item.id, label: item.label, ...along, bottomMm: 0, topMm: item.height.valueMm,
+      drawing: {
+        canvas: { startMm, endMm, centerMm: (startMm + endMm) / 2 },
+        export: { startMm: clippedStartMm, endMm: clippedEndMm, centerMm: (clippedStartMm + clippedEndMm) / 2, visible: clippedEndMm > clippedStartMm },
+      },
+    }]
   })
   const selected = room.fixtures.find((fixture) => fixture.id === selectedFixtureId && fixture.wall === wall)
   const key = selected ? fixtureHeightKey(selected.kind) : null
@@ -80,17 +101,49 @@ export function buildElevation(room: RoomSpace, wall: Wall, resident: ResidentPr
   const benchmarkBands = key && values ? BENCHMARK_IDS.flatMap((benchmarkId) => {
     const value = values[benchmarkId]
     if (!hasValue(value) || value.minMm === undefined || value.maxMm === undefined) return []
-    return [{ benchmarkId, key, clause: value.clause, minMm: value.minMm, maxMm: value.maxMm, pendingReview: value.review.status === 'pending' }]
+    const lowMm = Math.max(0, Math.min(room.height.valueMm, value.minMm))
+    const highMm = Math.max(0, Math.min(room.height.valueMm, value.maxMm))
+    const index = BENCHMARK_IDS.indexOf(benchmarkId)
+    return [{
+      benchmarkId, key, clause: value.clause, minMm: value.minMm, maxMm: value.maxMm, pendingReview: value.review.status === 'pending',
+      drawing: {
+        canvas: { lowMm: value.minMm, highMm: value.maxMm, rectHeightMm: Math.max(value.maxMm - value.minMm, 6), labelYmm: value.maxMm, labelOffsetMm: 30 + index * 100 },
+        export: { lowMm, highMm, rectHeightMm: Math.max(highMm - lowMm, 6), labelYmm: Math.max(210, 120 + room.height.valueMm - highMm - 25 - index * 100), visible: highMm > lowMm },
+      },
+    }]
   }) : []
+  const canvasTicks = Array.from({ length: Math.floor(room.height.valueMm / 500) + 1 }, (_, index) => index * 500)
+  const exportTicks = [...canvasTicks]
+  if (exportTicks[exportTicks.length - 1] !== room.height.valueMm) exportTicks.push(room.height.valueMm)
+  const reachBand = resident.reach ? {
+    lowMm: resident.reach.low.valueMm,
+    highMm: resident.reach.high.valueMm,
+    posture: resident.reach.posture,
+    drawing: {
+      canvas: { lowMm: resident.reach.low.valueMm, highMm: resident.reach.high.valueMm },
+      export: {
+        lowMm: Math.max(0, Math.min(room.height.valueMm, resident.reach.low.valueMm)),
+        highMm: Math.max(0, Math.min(room.height.valueMm, resident.reach.high.valueMm)),
+        labelYmm: Math.max(210, 120 + room.height.valueMm - Math.max(0, Math.min(room.height.valueMm, resident.reach.high.valueMm)) + 100),
+        visible: Math.max(0, Math.min(room.height.valueMm, resident.reach.high.valueMm)) > Math.max(0, Math.min(room.height.valueMm, resident.reach.low.valueMm)),
+      },
+    },
+  } : null
+  const withCheckGeometry = <T extends ElevationBox>(box: T) => ({
+    ...box,
+    checkOutline: { startMm: box.startMm - 24, endMm: box.endMm + 24, bottomMm: box.bottomMm - 24, topMm: box.topMm + 24 },
+    badgePoint: { alongMm: box.endMm, heightMm: box.topMm },
+  })
   return {
     wall, lengthMm: wallLengthMm(room, wall), heightMm: room.height.valueMm,
-    openings: room.openings.filter((opening) => opening.wall === wall).map((opening) => ({
+    openings: room.openings.filter((opening) => opening.wall === wall).map((opening) => withCheckGeometry({
       id: opening.id, kind: opening.kind, startMm: opening.offset.valueMm, endMm: opening.offset.valueMm + opening.width.valueMm,
       bottomMm: opening.sill.valueMm, topMm: opening.sill.valueMm + opening.height.valueMm,
     })),
-    fixtures: room.fixtures.filter((fixture) => fixture.wall === wall).map((fixture) => ({ id: fixture.id, kind: fixture.kind, label: fixture.label, referenceHeightMm: fixture.referenceHeight.valueMm, ...fixtureBox(fixture) })),
+    fixtures: room.fixtures.filter((fixture) => fixture.wall === wall).map((fixture) => withCheckGeometry({ id: fixture.id, kind: fixture.kind, label: fixture.label, referenceHeightMm: fixture.referenceHeight.valueMm, ...fixtureBox(fixture) })),
     silhouettes,
-    reachBand: resident.reach ? { lowMm: resident.reach.low.valueMm, highMm: resident.reach.high.valueMm, posture: resident.reach.posture } : null,
+    reachBand,
     benchmarkBands,
+    ticks: { canvas: canvasTicks, export: exportTicks },
   }
 }

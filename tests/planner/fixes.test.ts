@@ -259,7 +259,11 @@ describe('fixture geometry, wall view and 3D', () => {
     expect(buildElevation(space, 'east', project.resident, null, context)).toMatchObject({ reachBand: { lowMm: 400, highMm: 1200 }, benchmarkBands: [] })
     // The door is on the north wall, and nothing stands within 300 mm of it.
     const north = buildElevation(space, 'north', project.resident, null, context)
-    expect(north.openings).toEqual([{ id: 'bathroom-door', kind: 'door', startMm: 200, endMm: 900, bottomMm: 0, topMm: 2000 }])
+    expect(north.openings).toEqual([{
+      id: 'bathroom-door', kind: 'door', startMm: 200, endMm: 900, bottomMm: 0, topMm: 2000,
+      checkOutline: { startMm: 176, endMm: 924, bottomMm: -24, topMm: 2024 },
+      badgePoint: { alongMm: 900, heightMm: 2000 },
+    }])
     // A piece 200 mm from a wall is included; 400 mm is not.
     space.items = [createCatalogItem('bath-cabinet', 'near', 'Near', 500, 375), createCatalogItem('bath-cabinet', 'far', 'Far', 1500, 575)]
     expect(buildElevation(space, 'north', project.resident, null, context).silhouettes.map((item) => item.id)).toEqual(['near'])
