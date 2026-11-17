@@ -11,6 +11,8 @@ type Props = {
   measurement: Measurement | null
   locale: Locale
   editable: boolean
+  inputId?: string
+  focusTarget?: string
   /** Only an advisor can record a value as verified. */
   advisorMode?: boolean
   min: number
@@ -26,8 +28,9 @@ type Props = {
  * Changing the number resets it to "estimated" and clears any verification: a verified value is only
  * verified for the number that was checked.
  */
-export function MeasureField({ label, measurement, locale, editable, advisorMode = false, min, max, optional = false, onChange }: Props) {
-  const id = useId()
+export function MeasureField({ label, measurement, locale, editable, advisorMode = false, min, max, optional = false, inputId, focusTarget, onChange }: Props) {
+  const generatedId = useId()
+  const id = inputId ?? generatedId
   const [draft, setDraft] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [verifying, setVerifying] = useState(false)
@@ -77,6 +80,7 @@ export function MeasureField({ label, measurement, locale, editable, advisorMode
     <label className="field-label" htmlFor={id}>{label}</label>
     <div className="measure-row">
       <input id={id} type="text" inputMode="decimal" value={shown} placeholder={optional ? '—' : undefined} disabled={!editable}
+        data-need-focus={focusTarget}
         aria-invalid={error ? true : undefined} aria-describedby={error ? `${id}-error` : undefined}
         onChange={(event) => setDraft(event.target.value)} onBlur={commit}
         onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); commit() } }} />

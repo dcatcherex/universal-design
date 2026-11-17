@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { getPrimaryRoom } from '../../lib/planner/layout-access'
 import { CATALOG } from '../../lib/planner/catalog'
 import { createExampleProject } from '../../lib/planner/fixtures'
-import { buildFurnitureMesh, buildRoomScene, toWorldPosition } from '../../lib/planner/scene/build-scene'
+import { buildFurnitureMesh, buildRoomScene, toRoomPoint, toWorldPosition } from '../../lib/planner/scene/build-scene'
 import type { FurnitureItem } from '../../lib/planner/types'
 
 const now = '2026-09-28T00:00:00.000Z'
@@ -21,6 +21,12 @@ function itemFor(catalogId: string, dimensions = CATALOG.find((entry) => entry.i
 describe('shared 3D scene geometry', () => {
   it('maps room millimetres to metres on the shared x/z floor plane', () => {
     expect(toWorldPosition({ xMm: 1000, yMm: 2000 }, 0)).toEqual({ x: 1, y: 0, z: 2 })
+  })
+
+  it('round-trips room coordinates through the floor x/z mapping', () => {
+    const roomPoint = { xMm: 3475, yMm: 2180 }
+    const world = toWorldPosition(roomPoint, 0)
+    expect(toRoomPoint({ x: world.x, z: world.z })).toEqual(roomPoint)
   })
 
   it.each([0, 90] as const)('keeps furniture extents true to its 2D footprint at %i degrees', (rotationDeg) => {

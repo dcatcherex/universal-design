@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getPrimaryFloor, getPrimaryRoom } from '../../lib/planner/layout-access'
 import { createExampleProject } from '../../lib/planner/fixtures'
 import { getDoorSector, sectorIntersectsRect, getFootprint } from '../../lib/planner/geometry'
-import { evaluateLayout } from '../../lib/planner/checks'
+import { evaluateLayout, evaluateWithMove } from '../../lib/planner/checks'
 import type { Project } from '../../lib/planner/types'
 
 const now = '2026-09-28T00:00:00.000Z'
@@ -14,6 +14,15 @@ function onlyRule(project: Project, ruleId: string, layoutId: 'current' | 'propo
 }
 
 describe('explainable derived checks', () => {
+  it('evaluates a transient move without mutating the project and reports a blocked route', () => {
+    const project = projectFixture()
+    const before = structuredClone(project)
+    const movedResults = evaluateWithMove(project, 'proposed', 'coffee-table-1', { xMm: 3000, yMm: 500 })
+    expect(project).toEqual(before)
+    expect(movedResults.find((result) => result.ruleId === 'G04' && result.entityIds.includes('example-route')))
+      .toMatchObject({ status: 'attention', entityIds: expect.arrayContaining(['example-route', 'coffee-table-1']) })
+  })
+
   it('flags the fictional current corridor and clears the independent proposal', () => {
     const project = projectFixture()
     expect(onlyRule(project, 'G04', 'current')).toEqual(expect.arrayContaining([

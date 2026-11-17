@@ -1,15 +1,54 @@
 'use client'
 
+import { useId, useState, type FocusEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { t, type MessageKey } from '@/lib/planner/i18n'
-import { formatLength } from '@/lib/planner/units'
-import type { FallRecord, Locale, Measurement, Project, ResidentProfile } from '@/lib/planner/types'
+import { formatLength, parseLength } from '@/lib/planner/units'
+import { NEED_LABEL_KEYS, RESIDENT_NEEDS } from '@/lib/planner/resident-needs'
+import type { FallRecord, Locale, Measurement, PointMm, Project, ResidentProfile } from '@/lib/planner/types'
 import { MeasureField } from './measure-field'
 
 const ACTIVITIES: { value: FallRecord['activity']; label: MessageKey }[] = [
   { value: 'toileting', label: 'fallToileting' }, { value: 'bathing', label: 'fallBathing' }, { value: 'transferring', label: 'fallTransferring' },
   { value: 'walking', label: 'fallWalking' }, { value: 'at-night', label: 'fallAtNight' }, { value: 'other', label: 'fallOther' },
 ]
+function FallLocationFields({ point, locale, widthMm, depthMm, onChange }: {
+  point: PointMm | null; locale: Locale; widthMm: number; depthMm: number; onChange(point: PointMm | null): void
+}) {
+  const errorId = useId()
+  const [x, setX] = useState(point ? formatLength(point.xMm, 'cm', locale) : '')
+  const [y, setY] = useState(point ? formatLength(point.yMm, 'cm', locale) : '')
+  const [error, setError] = useState('')
+
+  function save() {
+    if (!x.trim() && !y.trim()) {
+      setError('')
+      if (point) onChange(null)
+      return
+    }
+    if (!x.trim() || !y.trim()) { setError(t(locale, 'fallLocationCoordinatesRequired')); return }
+    const parsedX = parseLength(x, 'cm'), parsedY = parseLength(y, 'cm')
+    if (!parsedX.ok || !parsedY.ok) { setError(t(locale, 'invalidLength')); return }
+    if (parsedX.value > widthMm || parsedY.value > depthMm) { setError(t(locale, 'fallLocationOutsideRoom')); return }
+    setError('')
+    if (parsedX.value !== point?.xMm || parsedY.value !== point?.yMm) onChange({ xMm: parsedX.value, yMm: parsedY.value })
+  }
+
+  function onBlur(event: FocusEvent<HTMLDivElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+    save()
+  }
+
+  return <div>
+    <div className="field-grid" onBlur={onBlur}>
+      <label className="field-label">{t(locale, 'fallLocationX')}<input type="text" inputMode="decimal" value={x} placeholder="—" aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined}
+        onChange={(event) => setX(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); save() } }} /></label>
+      <label className="field-label">{t(locale, 'fallLocationY')}<input type="text" inputMode="decimal" value={y} placeholder="—" aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined}
+        onChange={(event) => setY(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); save() } }} /></label>
+    </div>
+    {error && <p id={errorId} role="alert" className="field-error">{error}</p>}
+  </div>
+}
 
 type Props = {
   project: Project; locale: Locale; advisorMode: boolean
@@ -25,8 +64,10 @@ type Props = {
  */
 export function ResidentPanel({ project, locale, advisorMode, pickingFallId, onChange, onPickLocation }: Props) {
   const resident = project.resident
-  const roomId = project.current.floors[0].rooms[0].id
+  const room = project.current.floors[0].rooms[0]
+  const roomId = room.id
   const set = (patch: Partial<ResidentProfile>) => onChange({ ...resident, ...patch })
+  const selectedNeeds = new Set(resident.needs ?? [])
   const estimated = (valueMm: number): Measurement => ({ valueMm, confidence: 'estimated' })
 
   function setReach(bound: 'low' | 'high', value: Measurement | null) {
@@ -52,6 +93,22 @@ export function ResidentPanel({ project, locale, advisorMode, pickingFallId, onC
     <header><h2 id="resident-panel-title">{t(locale, 'resident')}</h2></header>
     <p className="privacy-note" role="note">{t(locale, 'residentPrivacy')}</p>
 
+    <fieldset className="resident-group resident-needs">
+      <legend>{t(locale, 'residentNeedsHeading')}</legend>
+      <p className="helper-text">{t(locale, 'residentNeedsHelp')}</p>
+      <div className="resident-needs-list">
+        {RESIDENT_NEEDS.map((need) => <label className="resident-need-option" key={need}>
+          <input type="checkbox" checked={selectedNeeds.has(need)} onChange={(event) => {
+            const needs = new Set(resident.needs ?? [])
+            if (event.target.checked) needs.add(need)
+            else needs.delete(need)
+            set({ needs: RESIDENT_NEEDS.filter((candidate) => needs.has(candidate)) })
+          }} />
+          <span>{t(locale, NEED_LABEL_KEYS[need])}</span>
+        </label>)}
+      </div>
+    </fieldset>
+
     <MeasureField label={t(locale, 'standingHeightCm')} measurement={resident.standingHeight} locale={locale} editable advisorMode={advisorMode} min={500} max={2500} optional onChange={(value) => set({ standingHeight: value })} />
 
     <fieldset className="resident-group">
@@ -72,7 +129,7 @@ export function ResidentPanel({ project, locale, advisorMode, pickingFallId, onC
     <fieldset className="resident-group">
       <legend>{t(locale, 'wheelchairSize')}</legend>
       <p className="helper-text">{t(locale, 'wheelchairWhy')}</p>
-      <MeasureField label={t(locale, 'wheelchairWidthCm')} measurement={resident.wheelchair?.width ?? null} locale={locale} editable advisorMode={advisorMode} min={300} max={1500} optional onChange={(value) => setWheelchair('width', value)} />
+      <MeasureField label={t(locale, 'wheelchairWidthCm')} measurement={resident.wheelchair?.width ?? null} locale={locale} editable advisorMode={advisorMode} min={300} max={1500} optional focusTarget="wheelchair-width" onChange={(value) => setWheelchair('width', value)} />
       <MeasureField label={t(locale, 'wheelchairLengthCm')} measurement={resident.wheelchair?.length ?? null} locale={locale} editable advisorMode={advisorMode} min={500} max={2500} optional onChange={(value) => setWheelchair('length', value)} />
     </fieldset>
 
@@ -87,6 +144,8 @@ export function ResidentPanel({ project, locale, advisorMode, pickingFallId, onC
         <label className="field-label">{t(locale, 'fallActivity')}<select value={fall.activity} onChange={(event) => updateFall(fall.id, { activity: event.target.value as FallRecord['activity'] })}>{ACTIVITIES.map((activity) => <option key={activity.value} value={activity.value}>{t(locale, activity.label)}</option>)}</select></label>
         <label className="field-label">{t(locale, 'fallNote')}<input type="text" defaultValue={fall.note} maxLength={500} onBlur={(event) => { if (event.target.value !== fall.note) updateFall(fall.id, { note: event.target.value }) }} /></label>
         <p className="helper-text">{fall.point ? `${t(locale, 'fallLocation')}: ${formatLength(fall.point.xMm, 'cm', locale)}, ${formatLength(fall.point.yMm, 'cm', locale)} ${t(locale, 'unitCm')}` : t(locale, 'fallNoLocation')}</p>
+        <FallLocationFields key={`${fall.id}-${fall.point?.xMm ?? ''}-${fall.point?.yMm ?? ''}`} point={fall.point} locale={locale} widthMm={room.shape.width.valueMm} depthMm={room.shape.depth.valueMm}
+          onChange={(point) => updateFall(fall.id, { point, ...(point ? { roomId } : {}) })} />
         <div className="form-actions">
           <Button type="button" variant={pickingFallId === fall.id ? 'secondary' : 'outline'} aria-pressed={pickingFallId === fall.id} onClick={() => onPickLocation(pickingFallId === fall.id ? null : fall.id)}>{t(locale, 'fallPick')}</Button>
           {fall.point && <Button type="button" variant="ghost" onClick={() => updateFall(fall.id, { point: null })}>{t(locale, 'fallClearLocation')}</Button>}

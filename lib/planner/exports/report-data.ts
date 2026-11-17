@@ -3,6 +3,9 @@ import { getReviewStatus } from '../history'
 import { summarizeCosts } from '../recommendations'
 import { BENCHMARKS, type BenchmarkSource } from '../standards/benchmarks'
 import { getProvince } from '../standards/provinces'
+import { CHECKLIST, getWalkthrough, type WalkthroughEntry, type WalkthroughFinding, type WalkthroughSummary } from '../standards/checklist'
+import type { ChecklistDataset } from '../standards/schema'
+import { getActionGroups, type ActionGroups } from '../action-list'
 import type { CheckResult, FallRecord, HouseholdBrief, Layout, LayoutId, Locale, Project, Recommendation, ResidentProfile, ReviewReceipt, RoomType } from '../types'
 
 export type ReportPlan = { layoutId: LayoutId; label: string; layout: Layout | null; checks: CheckResult[] }
@@ -23,6 +26,8 @@ export type ReportData = {
   budgetSatang: number | null
   review: { status: ReturnType<typeof getReviewStatus>; receipt: ReviewReceipt | null }
   benchmarks: { datasetVersion: string; sources: BenchmarkSource[]; primary: Project['benchmarkPolicy'] }
+  walkthrough: { datasetVersion: string; pendingReview: boolean; sources: ChecklistDataset['sources']; entries: WalkthroughEntry[]; findings: WalkthroughFinding[]; summary: WalkthroughSummary }
+  actionGroups: ActionGroups
   disclaimer: string
 }
 
@@ -32,10 +37,10 @@ export const DISCLAIMER: Record<Locale, string> = {
   th: 'ผลการตรวจนี้เป็นการเปรียบเทียบค่าที่บันทึกกับเกณฑ์อ้างอิงเท่านั้น ไม่ใช่การรับรอง กฎกระทรวงฯ บังคับใช้กับอาคารสาธารณะ ไม่ใช่บ้านพักอาศัยส่วนบุคคล งานโครงสร้างหรืองานที่ต้องขออนุญาตควรปรึกษาสถาปนิกหรือวิศวกรที่มีใบอนุญาต',
 }
 
-/** True when the project holds body or fall data, so an exported file contains health information. */
+/** True when the project holds resident needs, body measurements, or falls, so export contains health information. */
 export function hasHealthData(project: Project): boolean {
   const resident = project.resident
-  return resident.standingHeight !== null || resident.reach !== null || resident.wheelchair !== null || resident.strongerHand !== 'unknown' || resident.falls.length > 0
+  return resident.standingHeight !== null || resident.reach !== null || resident.wheelchair !== null || resident.strongerHand !== 'unknown' || resident.falls.length > 0 || !!resident.needs?.length
 }
 
 export function buildReportData(project: Project, locale: Locale): ReportData {
@@ -45,6 +50,7 @@ export function buildReportData(project: Project, locale: Locale): ReportData {
   const proposed = project.proposed ? structuredClone(project.proposed) : null
   const province = getProvince(project.household.provinceCode)
   const { falls, ...residentNeeds } = structuredClone(project.resident)
+  const walkthrough = getWalkthrough(project.checklist ?? [], current.floors[0].rooms[0].type)
   return {
     projectId: project.id,
     projectRevision: project.revision,
@@ -63,6 +69,15 @@ export function buildReportData(project: Project, locale: Locale): ReportData {
     budgetSatang: project.household.budgetSatang,
     review: { status: getReviewStatus(project), receipt: project.review ? structuredClone(project.review) : null },
     benchmarks: { datasetVersion: BENCHMARKS.datasetVersion, sources: structuredClone(BENCHMARKS.sources), primary: project.benchmarkPolicy ? structuredClone(project.benchmarkPolicy) : null },
+    walkthrough: {
+      datasetVersion: CHECKLIST.datasetVersion,
+      pendingReview: CHECKLIST.questions.some((question) => question.review.status === 'pending'),
+      sources: structuredClone(CHECKLIST.sources),
+      entries: walkthrough.entries,
+      findings: walkthrough.findings,
+      summary: walkthrough.summary,
+    },
+    actionGroups: getActionGroups(project),
     disclaimer: DISCLAIMER[locale],
   }
 }

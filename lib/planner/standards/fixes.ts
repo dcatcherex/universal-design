@@ -1,4 +1,4 @@
-import fixData from './data/fixes-2026.10.json'
+import fixData from './data/fixes-2026.11-draft.json'
 import { getCatalogEntry, isToilet } from '../catalog'
 import { evaluateLayout } from '../checks'
 import { createFixture, getFixtureEntry } from '../fixtures-catalog'
@@ -10,9 +10,18 @@ import { fixLibrarySchema, type Fix, type FixLibrary, type PriceList } from './s
 import type { BenchmarkId, CheckResult, FurnitureItem, Locale, Measurement, PointMm, Project, Recommendation, Result, RoomSpace, RuleId, Wall } from '../types'
 
 export type { Fix, FixEffect } from './schema'
+export type EffortTier = 'no-cost' | 'small-job' | 'building-work'
 
 /** The fix library in use, validated when the module loads. */
 export const FIXES: FixLibrary = fixLibrarySchema.parse(fixData)
+
+/** An explicit data override handles fixes whose physical work plainly needs a professional. */
+export function getEffortTier(fix: Fix): EffortTier {
+  if (fix.effort) return fix.effort
+  if (fix.needsProfessional || fix.workType === 'site-review') return 'building-work'
+  if (fix.workType === 'rearrange') return 'no-cost'
+  return 'small-job'
+}
 
 export type FixParams = {
   /** The entity the fix acts on: an item, door or fixture. Not needed for whole-room fixes. */

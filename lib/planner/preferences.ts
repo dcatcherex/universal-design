@@ -10,16 +10,18 @@ export type PlannerPreferences = {
   gridSnapMm: 10 | 50
   showMeasurements: boolean
   showOverlays: boolean
+  showDimensions: boolean
+  showCheckMarks: boolean
 }
 
 export const defaultPreferences: PlannerPreferences = {
-  version: 1, locale: 'th', mode: 'family', activeLayoutId: 'current', gridSnapMm: 50, showMeasurements: true, showOverlays: true,
+  version: 1, locale: 'th', mode: 'family', activeLayoutId: 'current', gridSnapMm: 50, showMeasurements: true, showOverlays: true, showDimensions: true, showCheckMarks: true,
 }
 
 const preferencesSchema = z.object({
   version: z.literal(1), locale: z.enum(['th', 'en']), mode: z.enum(['family', 'advisor']),
   activeLayoutId: z.enum(['current', 'proposed']), gridSnapMm: z.union([z.literal(10), z.literal(50)]),
-  showMeasurements: z.boolean(), showOverlays: z.boolean(),
+  showMeasurements: z.boolean(), showOverlays: z.boolean(), showDimensions: z.boolean().default(true), showCheckMarks: z.boolean().default(true),
 })
 
 export function loadPreferences(storage: StoragePort): Result<PlannerPreferences | null> {

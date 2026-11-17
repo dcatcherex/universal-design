@@ -1,0 +1,103 @@
+{
+  "version": "2026.11-draft",
+  "fixes": [
+    {
+      "id": "move-item", "ruleIds": ["G01", "G02", "G03", "G04", "G05", "B06"], "workType": "rearrange",
+      "label": { "th": "ย้ายสิ่งของ", "en": "Move the item" },
+      "description": { "th": "ย้ายสิ่งของไปยังตำแหน่งที่ไม่กีดขวาง", "en": "Move the item to a position where it is out of the way." },
+      "effect": { "kind": "move-item" }, "priceKey": null, "grantCategories": [], "needsProfessional": false
+    },
+    {
+      "id": "remove-item", "ruleIds": ["G01", "G02", "G03", "G04", "G05", "B06"], "workType": "rearrange",
+      "label": { "th": "นำสิ่งของออกจากห้อง", "en": "Take the item out of the room" },
+      "description": { "th": "นำสิ่งของที่กีดขวางออกจากห้องนี้", "en": "Take the obstructing item out of this room." },
+      "effect": { "kind": "remove-item" }, "priceKey": null, "grantCategories": [], "needsProfessional": false
+    },
+    {
+      "id": "threshold-remove", "ruleIds": ["D03"], "workType": "building-work",
+      "label": { "th": "รื้อธรณีประตูให้พื้นเรียบเสมอกัน", "en": "Remove the threshold so the floor is level" },
+      "description": { "th": "รื้อธรณีประตูและปรับระดับพื้นให้เสมอกันทั้งสองด้าน", "en": "Remove the threshold and level the floor on both sides of the door." },
+      "effect": { "kind": "set-threshold", "valueMm": 0 }, "priceKey": "threshold-remove", "grantCategories": ["older-persons-home", "disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "threshold-bevel", "ruleIds": ["D03"], "workType": "purchase",
+      "label": { "th": "ติดตั้งแผ่นลาดเอียงที่ธรณีประตู", "en": "Fit a bevel strip at the threshold" },
+      "description": { "th": "ติดตั้งแผ่นลาดเอียงทั้งสองด้านของธรณีประตู ความสูงของธรณีไม่เปลี่ยน จึงต้องตรวจสอบหน้างานอีกครั้ง", "en": "Fit a bevel strip on both sides of the threshold. The step height stays the same, so it still needs checking on site." },
+      "effect": { "kind": "note-only" }, "priceKey": "threshold-bevel", "grantCategories": ["older-persons-home", "disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "door-sliding", "ruleIds": ["B01"], "workType": "building-work",
+      "label": { "th": "เปลี่ยนเป็นประตูบานเลื่อน", "en": "Convert to a sliding door" },
+      "description": { "th": "เปลี่ยนประตูเป็นบานเลื่อน เพื่อให้เปิดจากด้านนอกได้แม้มีคนล้มอยู่หลังประตู", "en": "Convert the door to a sliding door so it can be opened from outside even if someone has fallen behind it." },
+      "effect": { "kind": "set-door-operation", "operation": "sliding" }, "priceKey": "door-sliding", "grantCategories": ["disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "door-rehang-out", "ruleIds": ["B01"], "workType": "building-work",
+      "label": { "th": "กลับบานประตูให้เปิดออกด้านนอก", "en": "Rehang the door to open outward" },
+      "description": { "th": "ย้ายบานพับให้ประตูเปิดออกด้านนอก เพื่อให้เปิดจากด้านนอกได้แม้มีคนล้มอยู่หลังประตู", "en": "Move the hinges so the door opens outward and can be opened from outside even if someone has fallen behind it." },
+      "effect": { "kind": "set-door-operation", "operation": "hinged-out" }, "priceKey": "door-rehang-out", "grantCategories": ["disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "door-widen", "ruleIds": ["D01", "H03"], "workType": "building-work",
+      "label": { "th": "ขยายช่องประตู", "en": "Widen the doorway" },
+      "description": { "th": "ขยายช่องประตูให้กว้างตามค่าเกณฑ์อ้างอิง งานนี้อาจกระทบโครงสร้างผนัง", "en": "Widen the doorway to the benchmark width. This work may affect the wall structure." },
+      "effect": { "kind": "set-door-width", "fromBenchmark": "door.clearWidth" }, "priceKey": "door-widen", "grantCategories": ["older-persons-home", "disability-home"], "needsProfessional": true
+    },
+    {
+      "id": "lever-handle", "ruleIds": ["D02"], "workType": "purchase",
+      "label": { "th": "เปลี่ยนเป็นมือจับแบบก้านบิด", "en": "Fit a lever handle" },
+      "description": { "th": "เปลี่ยนลูกบิดเป็นมือจับแบบก้านบิด ติดตั้งที่ความสูงตามค่าเกณฑ์อ้างอิง", "en": "Replace the knob with a lever handle at the benchmark height." },
+      "effect": { "kind": "set-handle", "type": "lever", "fromBenchmark": "door.handleHeight" }, "priceKey": "lever-handle", "grantCategories": ["older-persons-home"], "needsProfessional": false
+    },
+    {
+      "id": "raised-toilet-seat", "ruleIds": ["B02"], "workType": "purchase",
+      "label": { "th": "ติดตั้งที่นั่งเสริมความสูงโถส้วม", "en": "Fit a raised toilet seat" },
+      "description": { "th": "ติดตั้งที่นั่งเสริมเพื่อให้ความสูงที่นั่งอยู่ในช่วงค่าเกณฑ์อ้างอิง", "en": "Fit a raised seat so the seat height falls within the benchmark range." },
+      "effect": { "kind": "set-seat-height", "fromBenchmark": "toilet.seatHeight" }, "priceKey": "raised-toilet-seat", "grantCategories": ["disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "replace-seated-toilet", "ruleIds": ["B02"], "workType": "building-work",
+      "label": { "th": "เปลี่ยนเป็นโถส้วมนั่งราบ", "en": "Replace with a sit-down toilet" },
+      "description": { "th": "เปลี่ยนโถส้วมนั่งยองเป็นโถส้วมนั่งราบ", "en": "Replace the squat toilet with a sit-down toilet." },
+      "effect": { "kind": "replace-item", "catalogId": "toilet-seated" }, "priceKey": "replace-seated-toilet", "grantCategories": ["disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "grab-bar-horizontal", "ruleIds": ["B03"], "workType": "building-work",
+      "label": { "th": "ติดตั้งราวจับแนวนอนข้างโถส้วม", "en": "Install a horizontal grab bar beside the toilet" },
+      "description": { "th": "ติดตั้งราวจับแนวนอนบนผนังด้านข้างโถส้วม ผนังต้องแข็งแรงพอรับน้ำหนัก", "en": "Install a horizontal grab bar on the wall beside the toilet. The wall must be strong enough to take the load." },
+      "effort": "building-work",
+      "effect": { "kind": "add-fixture", "fixtureKind": "grab-bar-horizontal", "placement": "beside-toilet", "fromBenchmark": "grabBar.horizontalHeight" }, "priceKey": "grab-bar-horizontal", "grantCategories": ["disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "grab-bar-fold-down", "ruleIds": ["B03"], "workType": "building-work",
+      "label": { "th": "ติดตั้งราวจับแบบพับได้ข้างโถส้วม", "en": "Install a fold-down grab bar beside the toilet" },
+      "description": { "th": "ติดตั้งราวจับแบบพับได้บนผนังด้านหลังโถส้วม ในด้านที่ไม่มีผนังข้าง", "en": "Install a fold-down grab bar on the wall behind the toilet, on the side with no side wall." },
+      "effort": "building-work",
+      "effect": { "kind": "add-fixture", "fixtureKind": "grab-bar-fold-down", "placement": "beside-toilet", "fromBenchmark": "grabBar.horizontalHeight" }, "priceKey": "grab-bar-fold-down", "grantCategories": ["disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "basin-height", "ruleIds": ["B04"], "workType": "building-work",
+      "label": { "th": "ปรับความสูงอ่างล้างมือ", "en": "Adjust the basin height" },
+      "description": { "th": "ติดตั้งอ่างล้างมือใหม่ให้ขอบอ่างอยู่ในช่วงค่าเกณฑ์อ้างอิง", "en": "Refit the basin so its rim falls within the benchmark range." },
+      "effect": { "kind": "set-fixture-height", "fromBenchmark": "basin.rimHeight" }, "priceKey": "basin-height", "grantCategories": ["disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "anti-slip-floor", "ruleIds": ["B05"], "workType": "building-work",
+      "label": { "th": "ทำพื้นกันลื่น", "en": "Apply an anti-slip floor treatment" },
+      "description": { "th": "เคลือบหรือเปลี่ยนวัสดุพื้นให้เป็นพื้นกันลื่น", "en": "Coat or replace the floor surface so it is slip resistant." },
+      "effect": { "kind": "set-floor-surface", "slipResistance": "slip-resistant" }, "priceKey": "anti-slip-floor", "grantCategories": ["older-persons-home", "disability-home"], "needsProfessional": false
+    },
+    {
+      "id": "fixture-to-reach", "ruleIds": ["H01"], "workType": "building-work",
+      "label": { "th": "ย้ายให้อยู่ในระยะเอื้อมถึง", "en": "Move it into the resident's reach" },
+      "description": { "th": "ปรับความสูงให้อยู่ในช่วงที่ผู้อยู่อาศัยเอื้อมถึงได้สะดวก", "en": "Change the height so it sits inside the band the resident can reach comfortably." },
+      "effect": { "kind": "set-fixture-height", "fromResidentReach": true }, "priceKey": "fixture-relocate", "grantCategories": ["older-persons-home"], "needsProfessional": false
+    },
+    {
+      "id": "socket-height", "ruleIds": ["H02"], "workType": "building-work",
+      "label": { "th": "ย้ายเต้ารับให้สูงขึ้น", "en": "Raise the socket" },
+      "description": { "th": "ย้ายเต้ารับให้อยู่ในช่วงความสูงตามคำแนะนำสำหรับผู้ใช้รถเข็น งานไฟฟ้าควรทำโดยช่างไฟฟ้า", "en": "Move the socket into the height range advised for wheelchair users. Electrical work should be done by an electrician." },
+      "effect": { "kind": "set-fixture-height", "fromBenchmark": "socket.height" }, "priceKey": "fixture-relocate", "grantCategories": ["older-persons-home"], "needsProfessional": true
+    }
+  ]
+}

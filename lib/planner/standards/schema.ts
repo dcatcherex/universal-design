@@ -5,6 +5,45 @@ const bilingual = z.object({ th: z.string(), en: z.string() })
 const benchmarkId = z.enum(['th-public-building', 'th-dop-home'])
 const roomType = z.enum(['living', 'bathroom'])
 
+const checklistArea = z.enum(['floors', 'lighting', 'bathroom', 'furniture', 'emergency', 'entrance'])
+const checklistReview = z.object({
+  status: z.enum(['pending', 'reviewed']),
+  reviewer: z.string().optional(),
+  reviewedAt: z.string().optional(),
+}).superRefine((review, ctx) => {
+  if (review.status === 'reviewed' && (!review.reviewer || !review.reviewedAt)) {
+    ctx.addIssue({ code: 'custom', message: 'Reviewed checklist content needs reviewer and reviewedAt' })
+  }
+})
+export const checklistDatasetSchema = z.object({
+  datasetVersion: z.string().min(1),
+  sources: z.array(z.object({
+    id: z.string().min(1), title: z.string().min(1), publisher: z.string().min(1),
+    url: z.string().url(), licenceNote: z.string().min(1),
+  })).min(1),
+  questions: z.array(z.object({
+    id: z.string().min(1), area: checklistArea, roomTypes: z.array(roomType).min(1),
+    text: bilingual, why: bilingual, hazardAnswer: z.enum(['yes', 'no']),
+    advice: bilingual, effort: z.enum(['no-cost', 'small-job', 'building-work']),
+    sourceId: z.string().min(1), sourceRef: z.string().min(1),
+    review: checklistReview,
+  })),
+}).superRefine((dataset, ctx) => {
+  const sourceIds = new Set<string>()
+  for (const source of dataset.sources) {
+    if (sourceIds.has(source.id)) ctx.addIssue({ code: 'custom', message: `Duplicate checklist source ${source.id}` })
+    sourceIds.add(source.id)
+  }
+  const questionIds = new Set<string>()
+  for (const question of dataset.questions) {
+    if (questionIds.has(question.id)) ctx.addIssue({ code: 'custom', message: `Duplicate checklist question ${question.id}` })
+    questionIds.add(question.id)
+    if (!sourceIds.has(question.sourceId)) ctx.addIssue({ code: 'custom', message: `Unknown source ${question.sourceId} for ${question.id}` })
+  }
+})
+export type ChecklistDataset = z.infer<typeof checklistDatasetSchema>
+export type ChecklistQuestion = ChecklistDataset['questions'][number]
+
 export const benchmarkValueSchema = z.object({
   key: z.enum(BENCHMARK_KEYS),
   benchmarkId,
@@ -99,6 +138,7 @@ export const fixLibrarySchema = z.object({
   fixes: z.array(z.object({
     id: z.string().min(1), label: bilingual, description: bilingual, ruleIds: z.array(ruleIdSchema).min(1),
     workType: z.enum(['rearrange', 'purchase', 'building-work', 'site-review']),
+    effort: z.enum(['no-cost', 'small-job', 'building-work']).optional(),
     effect: fixEffectSchema, priceKey: z.string().min(1).nullable(),
     grantCategories: z.array(z.enum(['older-persons-home', 'disability-home'])),
     needsProfessional: z.boolean(),

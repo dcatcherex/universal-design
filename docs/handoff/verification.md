@@ -47,6 +47,10 @@ The report PDF is six A4 pages. Chromium rendered each page from the application
 
 ## Environment limitations
 
+## Open before release
+
+- **Checklist source adaptation rights (Package 13):** The CDC PDF contains no licence statement, although a GPO/DPLA catalog record describes the U.S. government work as public domain under 17 U.S.C. 105. The DOP manual has no located public adaptation licence. A human must confirm permission to adapt both sources before the checklist dataset is released. Until then, `checklist-2026.11-draft.json` remains draft content and every question remains pending review.
+
 - Only the Chromium browser binary matching Playwright 1.63.0 is installed. A WebKit project is available behind `PLAYWRIGHT_WEBKIT=1`, but the matching WebKit browser is absent; WebKit is not claimed as tested.
 - The full `pnpm lint` command reports two existing issues in starter UI files (`components/ui/carousel.tsx:98` and `hooks/use-mobile.ts:14`, `react-hooks/set-state-in-effect`). Planner code, tests and Playwright configuration pass the scoped ESLint command in the final record.
 - Thai legal sources and dimensional thresholds remain unverified and are intentionally not represented as compliance rules.

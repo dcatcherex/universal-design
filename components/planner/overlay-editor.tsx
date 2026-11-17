@@ -77,7 +77,7 @@ function RouteEditor({ route, room, locale, editable, onSave, onRemove }: {
     <header><strong>{t(locale, 'routeOverlay')}</strong><Button type="button" variant="ghost" onClick={onRemove} disabled={!editable}>{t(locale, 'removeOverlay')}</Button></header>
     {!editable && <p className="helper-text">{t(locale, 'currentReadOnly')}</p>}
     <label className="field-label">{t(locale, 'routeLabel')}<input value={label} onChange={(event) => setLabel(event.target.value)} disabled={!editable} /></label>
-    <label className="field-label">{t(locale, 'routeWidthCm')}<input inputMode="decimal" value={width} onChange={(event) => setWidth(event.target.value)} placeholder="—" disabled={!editable} /></label>
+    <label className="field-label">{t(locale, 'routeWidthCm')}<input data-need-focus="walking-route" inputMode="decimal" value={width} onChange={(event) => setWidth(event.target.value)} placeholder="—" disabled={!editable} /></label>
     <div className="overlay-points">{points.map((point, index) => <PointFields key={index} point={point} index={index} locale={locale}
       onChange={(next) => setPoints(points.map((value, pointIndex) => pointIndex === index ? next : value))}
       onRemove={() => setPoints(points.filter((_, pointIndex) => pointIndex !== index))} canRemove={points.length > 2} editable={editable} />)}</div>
@@ -110,7 +110,7 @@ function TurningEditor({ area, locale, editable, onSave, onRemove }: {
       <label className="field-label">{t(locale, 'pointX')}<input inputMode="decimal" value={x} onChange={(event) => setX(event.target.value)} disabled={!editable} /></label>
       <label className="field-label">{t(locale, 'pointY')}<input inputMode="decimal" value={y} onChange={(event) => setY(event.target.value)} disabled={!editable} /></label>
     </div>
-    <label className="field-label">{t(locale, 'turningDiameterCm')}<input inputMode="decimal" value={diameter} onChange={(event) => setDiameter(event.target.value)} placeholder="—" disabled={!editable} /></label>
+    <label className="field-label">{t(locale, 'turningDiameterCm')}<input data-need-focus="turning-area" inputMode="decimal" value={diameter} onChange={(event) => setDiameter(event.target.value)} placeholder="—" disabled={!editable} /></label>
     <Button type="button" onClick={save} disabled={!editable}>{t(locale, 'saveOverlay')}</Button>
     {error && <p role="alert" className="field-error">{t(locale, 'overlayInputError')}</p>}
   </article>

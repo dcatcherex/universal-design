@@ -2,15 +2,18 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { ActionList } from './action-list'
 import { formatBahtAmount, summarizeCosts } from '@/lib/planner/recommendations'
 import { t } from '@/lib/planner/i18n'
-import type { Locale, Project, Recommendation } from '@/lib/planner/types'
+import type { CheckResult, Locale, Project, Recommendation } from '@/lib/planner/types'
+import type { Fix } from '@/lib/planner/standards/fixes'
 import { RecommendationEditor } from './recommendation-editor'
 import { ReviewPanel } from './review-panel'
 
-export function RecommendationsPanel({ project, locale, advisorMode, draft, onDraftConsumed, onSave, onDelete, onReview }: {
+export function RecommendationsPanel({ project, locale, advisorMode, draft, onDraftConsumed, onSave, onDelete, onReview, onPreviewFix }: {
   project: Project; locale: Locale; advisorMode: boolean; draft: Recommendation | null; onDraftConsumed(): void
   onSave(recommendation: Recommendation): void; onDelete(id: string): void; onReview(name: string): void
+  onPreviewFix(check: CheckResult, fix: Fix): void
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
@@ -35,6 +38,7 @@ export function RecommendationsPanel({ project, locale, advisorMode, draft, onDr
       {summary.includedCount ? <><p>{t(locale, 'knownSubtotal')}: {locale === 'th' ? `${formatBahtAmount(summary.lowSatang, locale)}–${formatBahtAmount(summary.highSatang, locale)} บาท` : `THB ${formatBahtAmount(summary.lowSatang, locale)}–${formatBahtAmount(summary.highSatang, locale)}`}</p><p>{t(locale, 'missingCostComponents')}: {summary.missingComponents} · {t(locale, 'includedRecommendationCount')}: {summary.includedCount}</p></> : <p>{t(locale, 'noCostComponents')}</p>}
       <p>{statusLine}{budget !== null && ` · ${locale === 'th' ? `${formatBahtAmount(budget, locale)} บาท` : `THB ${formatBahtAmount(budget, locale)}`}`}</p>
     </div>
+    <ActionList project={project} locale={locale} onPreviewFix={onPreviewFix} />
     {notice && <p role="status">{notice}</p>}
     {editing && <RecommendationEditor key={editing.id} recommendation={editing} locale={locale} onSave={save} onCancel={() => { if (draft) onDraftConsumed(); setEditingId(null) }} />}
     {project.recommendations.length ? <div className="recommendation-list">{project.recommendations.map((recommendation) => <article className="recommendation-card" key={recommendation.id}>

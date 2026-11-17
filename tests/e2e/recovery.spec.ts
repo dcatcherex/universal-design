@@ -2,12 +2,52 @@ import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
 const projectKey = 'baan-yoo-dee.project.v2'
+const legacyKey = 'baan-yoo-dee.project.v1'
+const now = '2026-09-28T00:00:00.000Z'
+
+function v1Envelope() {
+  const m = (valueMm: number) => ({ valueMm, confidence: 'estimated' })
+  const layout = {
+    room: { width: m(6000), depth: m(5000), height: m(2700) },
+    openings: [{ id: 'entry-door', kind: 'door', wall: 'north', offset: m(300), width: m(900), height: m(2100), sill: m(0), threshold: m(0), operation: 'hinged-in', hinge: 'start' }],
+    items: [{ id: 'legacy-sofa', catalogId: 'sofa', label: 'Legacy sofa', center: { xMm: 3000, yMm: 4200 }, width: m(2100), depth: m(900), height: m(850), rotationDeg: 0, finish: 'sage', obstruction: 'solid' }],
+    routes: [], turningAreas: [],
+  }
+  return {
+    storageVersion: 1,
+    writeToken: 'legacy-token',
+    project: {
+      schemaVersion: 1, id: 'legacy-recovery', title: 'Legacy recovery project', createdAt: now, updatedAt: now, revision: 2,
+      household: { province: '', activities: [], mobilityAids: [], concerns: [], assistanceNotes: '', residentPreferences: '', budgetSatang: null },
+      current: layout, proposed: null, targets: { routeWidth: null, turningDiameter: null }, recommendations: [],
+      review: null,
+    },
+  }
+}
+
+test('corrupt v2 recovery leaves a valid v1 storage entry byte-identical', async ({ page }) => {
+  const rawV1 = JSON.stringify(v1Envelope())
+  const rawV2 = '{broken v2 bytes'
+  await page.addInitScript(({ legacy, current }) => {
+    localStorage.setItem('baan-yoo-dee.project.v1', legacy)
+    localStorage.setItem('baan-yoo-dee.project.v2', current)
+  }, { legacy: rawV1, current: rawV2 })
+  await page.goto('/')
+  const recovery = page.locator(".recovery-card")
+  await expect(recovery).toBeVisible()
+  const recoveryDownload = page.waitForEvent('download')
+  await recovery.getByRole("button").first().click()
+  expect(await readFile((await (await recoveryDownload).path())!, 'utf8')).toBe(rawV2)
+  const storedLegacy = await page.evaluate((key) => localStorage.getItem(key), legacyKey)
+  expect(storedLegacy).toBe(rawV1)
+})
 
 test('offers the exact corrupt saved bytes before a deliberate start over', async ({ page }) => {
   const raw = '{broken user data — keep for recovery'
   await page.addInitScript(({ key, value }) => localStorage.setItem(key, value), { key: projectKey, value: raw })
   await page.goto('/')
-  await expect(page.getByRole('alert').filter({ hasText: /ข้อมูลที่บันทึกไว้/ })).toBeVisible()
+  const recovery = page.locator(".recovery-card")
+  await expect(recovery).toBeVisible()
   const rawDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: 'ดาวน์โหลดข้อมูลที่บันทึกไว้' }).click()
   const download = await rawDownload
@@ -44,7 +84,7 @@ test('quota failure preserves the in-memory project for download', async ({ page
   await expect(page.locator('.project-menu-wrap .save-state')).toContainText('บันทึกไม่สำเร็จ', { timeout: 7000 })
   const projectDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: 'ไฟล์โครงการ' }).click()
-  await page.getByRole('menuitem', { name: 'ดาวน์โหลดไฟล์โครงการ' }).click()
+  await page.getByRole('menuitem', { name: 'ดาวน์โหลดไฟล์โครงการ', exact: true }).click()
   const download = await projectDownload
   const project = JSON.parse(await readFile((await download.path())!, 'utf8')) as { title: string; current: { floors: { rooms: { items: unknown[] }[] }[] } }
   expect(project.title).toMatch(/ตัวอย่างห้องนั่งเล่น/)

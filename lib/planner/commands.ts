@@ -11,6 +11,7 @@ export type ProjectCommand =
   | { type: 'set-title'; title: string }
   | { type: 'set-household'; household: HouseholdBrief }
   | { type: 'set-resident'; resident: ResidentProfile }
+  | { type: 'set-checklist-answer'; questionId: string; answer: 'yes' | 'no' | 'unsure' | 'not-applicable'; note: string }
   | { type: 'set-targets'; targets: Project['targets'] }
   /** `primary: null` clears the policy. */
   | { type: 'set-benchmark-policy'; primary: BenchmarkId | null; chosenBy: string }
@@ -84,6 +85,19 @@ export function applyCommand(project: Project, command: ProjectCommand, now: str
     case 'set-resident':
       next = { ...project, resident: structuredClone(command.resident) }
       break
+    case 'set-checklist-answer': {
+      const answers = project.checklist ?? []
+      const existing = answers.find((answer) => answer.questionId === command.questionId)
+      const updated = { questionId: command.questionId, answer: command.answer, note: command.note.trim().slice(0, 1000), answeredAt: now }
+      if (existing && existing.answer === updated.answer && existing.note === updated.note) return { ok: true, value: project }
+      next = {
+        ...project,
+        checklist: existing
+          ? answers.map((answer) => answer.questionId === command.questionId ? updated : answer)
+          : [...answers, updated],
+      }
+      break
+    }
     case 'set-targets':
       next = { ...project, targets: structuredClone(command.targets) }
       break

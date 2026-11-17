@@ -72,7 +72,7 @@ describe('v1 to v2 migration', () => {
     expect(door.handle).toBeNull()
     expect(door.connectsToRoomId).toBeNull()
     expect(door.operation).toBe('hinged-in')
-    expect(result.value.resident).toEqual({ standingHeight: null, reach: null, strongerHand: 'unknown', wheelchair: null, falls: [] })
+    expect(result.value.resident).toEqual({ standingHeight: null, reach: null, strongerHand: 'unknown', wheelchair: null, falls: [], needs: [] })
     expect(result.value.benchmarkPolicy).toBeNull()
     expect(result.value.report).toEqual({ includeFallHistory: false })
   })

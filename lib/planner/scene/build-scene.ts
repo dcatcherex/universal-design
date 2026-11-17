@@ -13,6 +13,10 @@ export function toWorldPosition(point: PointMm, heightMm: number): { x: number; 
   return { x: point.xMm / 1000, y: heightMm / 1000, z: point.yMm / 1000 }
 }
 
+export function toRoomPoint(point: { x: number; z: number }): PointMm {
+  return { xMm: point.x * 1000, yMm: point.z * 1000 }
+}
+
 function wallOpeningIntersectsCell(opening: Opening, start: number, end: number, bottom: number, top: number) {
   const holeStart = opening.offset.valueMm / 1000
   const holeEnd = (opening.offset.valueMm + opening.width.valueMm) / 1000
@@ -53,20 +57,24 @@ function addWall(group: Group, side: Opening['wall'], length: number, height: nu
 }
 
 /** Frames and glass are decoration only: they sit inside the wall thickness and never enter the room. */
-function addOpeningTrim(group: Group, side: Opening['wall'], coordinate: number, opening: Opening, frame: Material, glass: Material) {
+function addOpeningTrim(group: Group, side: Opening['wall'], coordinate: number, opening: Opening) {
   const start = opening.offset.valueMm / 1000
   const width = opening.width.valueMm / 1000
   const bottom = opening.sill.valueMm / 1000
   const tall = opening.height.valueMm / 1000
   const bar = 0.05
   const depth = WALL_THICKNESS * 0.8
+  const frame = new MeshStandardMaterial({ color: 0xdcc49d, roughness: 0.7 })
+  const glass = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.15, transparent: true, opacity: 0.38 })
   const trim = new Group()
   trim.name = `opening-trim-${opening.id}`
   trim.userData.wall = side
+  trim.userData.openingId = opening.id
   const part = (alongCenter: number, yCenter: number, along: number, partTall: number, across: number, material: Material) => {
     if (along <= 0 || partTall <= 0) return
     const mesh = wallBox(side, coordinate, alongCenter, yCenter, along, partTall, across, material)
     mesh.name = 'opening-trim'
+    mesh.userData.openingId = opening.id
     trim.add(mesh)
   }
   part(start + bar / 2, bottom + tall / 2, bar, tall, depth, frame)
@@ -114,13 +122,11 @@ export function buildRoomScene(layout: Layout): Group {
   const height = room.height.valueMm / 1000
   addFloor(group, width, depth)
 
-  const frame = new MeshStandardMaterial({ color: 0xdcc49d, roughness: 0.7 })
-  const glass = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.15, transparent: true, opacity: 0.38 })
   const walls: [Opening['wall'], number, number][] = [['north', width, 0], ['south', width, depth], ['east', depth, width], ['west', depth, 0]]
   for (const [side, length, coordinate] of walls) {
     const openings = room.openings.filter((opening) => opening.wall === side)
     addWall(group, side, length, height, coordinate, openings)
-    for (const opening of openings) addOpeningTrim(group, side, coordinate, opening, frame, glass)
+    for (const opening of openings) addOpeningTrim(group, side, coordinate, opening)
   }
   for (const item of room.items) group.add(buildFurnitureMesh(item))
   for (const fixture of room.fixtures) group.add(buildFixtureMesh(fixture, room))

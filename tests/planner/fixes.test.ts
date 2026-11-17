@@ -1,7 +1,7 @@
 import { Box3, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { CATALOG } from '../../lib/planner/catalog'
-import { evaluateLayout } from '../../lib/planner/checks'
+import { compareCheckResults, evaluateLayout, summarizeChecks } from '../../lib/planner/checks'
 import { buildElevation, fixturePositionProblem } from '../../lib/planner/elevation'
 import { buildReportData, hasHealthData } from '../../lib/planner/exports/report-data'
 import { createPlanSvg } from '../../lib/planner/exports/plan-svg'
@@ -38,6 +38,8 @@ describe('fix library', () => {
 
   it('previews rehanging the door outward without changing the input', () => {
     const project = bathroom()
+    const beforeResults = evaluateLayout(project, 'current')
+    expect(summarizeChecks(beforeResults)).toEqual({ attention: 7, likelyAttention: 5, notEvaluated: 3, clear: 3, total: 13, nearFall: 0 })
     const before = JSON.stringify(project)
     const preview = previewFix(project, 'door-rehang-out', { entityId: 'bathroom-door', ruleId: 'B01' }, now)
     if (!preview.ok) throw new Error(preview.error.code)
@@ -48,6 +50,8 @@ describe('fix library', () => {
     // Only the door changed in the copy.
     expect({ ...proposed, openings: [] }).toEqual({ ...getPrimaryRoom(project.current), openings: [] })
     expect(preview.value.newResults.find((entry) => entry.ruleId === 'B01')?.status).toBe('clear')
+    expect(compareCheckResults(beforeResults, preview.value.newResults).find((change) => change.ruleId === 'B01'))
+      .toMatchObject({ before: { status: 'attention' }, after: { status: 'clear' }, entityIds: ['bathroom-door'] })
   })
 
   it('places a horizontal grab bar beside the toilet at the benchmark height', () => {
@@ -330,7 +334,7 @@ describe('report and exports in v2', () => {
     room.fixtures = [createFixture('grab-bar-horizontal', 'east', room, 'bar-1', '<b>Bar</b>', { offset: 1100 })]
     room.wetZones[0].label = 'Wet & soapy'
     const svg = createPlanSvg(project.current, { locale: 'en', layoutLabel: 'Current', showOverlays: true })
-    expect(svg).toContain('viewBox="0 0 2000 1800"')
+    expect(svg).toContain('viewBox="-360 -360 2720 2520"')
     expect(svg).toContain('data-fixture-id="bar-1"')
     expect(svg).toContain('data-wet-zone-id="wet-zone-1"')
     expect(svg).toContain('&lt;b&gt;Bar&lt;/b&gt;')

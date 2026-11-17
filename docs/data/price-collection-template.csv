@@ -1,0 +1,3 @@
+priceKey,region,materialsLow,materialsHigh,labourLow,labourHigh,jobDate,province,note
+door-rehang-out,north,,,,,,,"EXAMPLE - delete; enter a real completed job, ISO YYYY-MM-DD, and whole-baht amounts"
+grab-bar-horizontal,central,,,,,,,"EXAMPLE - delete; enter a real completed job, ISO YYYY-MM-DD, and whole-baht amounts"

@@ -6,7 +6,10 @@ import { buildElevation, fixturePositionProblem } from '@/lib/planner/elevation'
 import { createFixture, FIXTURE_CATALOG } from '@/lib/planner/fixtures-catalog'
 import { t, type MessageKey } from '@/lib/planner/i18n'
 import { getPrimaryRoom, withPrimaryRoom } from '@/lib/planner/layout-access'
-import type { FixtureKind, Layout, Locale, ResidentProfile, Wall, WallFixture } from '@/lib/planner/types'
+import { getEntityStatuses, type EntityCheckStatus } from '@/lib/planner/checks'
+import type { CheckResult, FixtureKind, Layout, LayoutId, Locale, Project, ResidentProfile, Wall, WallFixture } from '@/lib/planner/types'
+import { CheckMarkBadge } from './check-mark-badge'
+import { useMoveCheckPreview } from './use-move-check-preview'
 
 const WALLS: { value: Wall; label: MessageKey }[] = [
   { value: 'north', label: 'wallNorth' }, { value: 'east', label: 'wallEast' }, { value: 'south', label: 'wallSouth' }, { value: 'west', label: 'wallWest' },
@@ -15,18 +18,29 @@ const BENCHMARK_NAMES = { 'th-public-building': 'benchmarkPublicShort', 'th-dop-
 
 type Props = {
   layout: Layout; locale: Locale; wall: Wall; selectionId: string | null; resident: ResidentProfile; mobilityAids: readonly string[]; editable: boolean
+  project: Project; layoutId: LayoutId; checkResults: CheckResult[]
   highlightIds?: readonly string[]
+  checkStatuses: ReadonlyMap<string, EntityCheckStatus>; showCheckMarks: boolean; onSelectCheckResult(resultId: string): void
   onWallChange(wall: Wall): void; onSelect(id: string | null): void; onCommitLayout(layout: Layout): void
 }
 
 /** One wall seen from inside the room. Fixtures can be moved here; furniture is shown for reference only. */
-export function WallElevation({ layout, locale, wall, selectionId, resident, mobilityAids, editable, highlightIds = [], onWallChange, onSelect, onCommitLayout }: Props) {
+export function WallElevation({ layout, locale, wall, selectionId, resident, mobilityAids, editable, highlightIds = [], checkStatuses: baseCheckStatuses, showCheckMarks, project, layoutId, checkResults, onSelectCheckResult, onWallChange, onSelect, onCommitLayout }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ id: string; dx: number; dy: number } | null>(null)
   const [preview, setPreview] = useState<{ id: string; offsetMm: number; heightMm: number } | null>(null)
+  const moveFeedback = useMoveCheckPreview(project, layoutId, checkResults, locale)
+  const clearMoveFeedback = moveFeedback.clear
   const [message, setMessage] = useState('')
   const [newKind, setNewKind] = useState<FixtureKind>('grab-bar-horizontal')
   const room = getPrimaryRoom(layout)
+  const activeResults = moveFeedback.preview?.results ?? checkResults
+  const checkStatuses = useMemo(() => moveFeedback.preview ? getEntityStatuses(activeResults) : baseCheckStatuses, [activeResults, baseCheckStatuses, moveFeedback.preview])
+  const previewProblem = preview ? (() => {
+    const fixture = room.fixtures.find((candidate) => candidate.id === preview.id)
+    return fixture ? fixturePositionProblem({ ...fixture, offset: { ...fixture.offset, valueMm: preview.offsetMm }, referenceHeight: { ...fixture.referenceHeight, valueMm: preview.heightMm } }, room) : null
+  })() : null
   const previewRoom = useMemo(() => preview ? { ...room, fixtures: room.fixtures.map((fixture) => fixture.id === preview.id ? { ...fixture, offset: { ...fixture.offset, valueMm: preview.offsetMm }, referenceHeight: { ...fixture.referenceHeight, valueMm: preview.heightMm } } : fixture) } : room, [room, preview])
   const model = useMemo(() => buildElevation(previewRoom, wall, resident, selectionId, { roomType: room.type, mobilityAids }), [previewRoom, wall, resident, selectionId, room.type, mobilityAids])
   const { lengthMm, heightMm } = model
@@ -41,11 +55,17 @@ export function WallElevation({ layout, locale, wall, selectionId, resident, mob
       if (event.key !== 'Escape' || !dragRef.current) return
       dragRef.current = null
       setPreview(null)
+      clearMoveFeedback()
       setMessage('')
     }
     window.addEventListener('keydown', onEscape)
     return () => window.removeEventListener('keydown', onEscape)
-  }, [])
+  }, [clearMoveFeedback])
+
+  function chipPoint(clientX: number, clientY: number) {
+    const rect = stageRef.current?.getBoundingClientRect()
+    return { left: rect ? clientX - rect.left + 12 : 12, top: rect ? clientY - rect.top + 12 : 12 }
+  }
 
   function modelPoint(event: { clientX: number; clientY: number }) {
     const svg = svgRef.current
@@ -70,23 +90,31 @@ export function WallElevation({ layout, locale, wall, selectionId, resident, mob
     event.stopPropagation()
     onSelect(fixture.id)
     if (!editable) return
+    setMessage('')
     const point = modelPoint(event)
     dragRef.current = { id: fixture.id, dx: fixture.offset.valueMm - point.along, dy: fixture.referenceHeight.valueMm - point.up }
     event.currentTarget.setPointerCapture(event.pointerId)
     setPreview({ id: fixture.id, offsetMm: fixture.offset.valueMm, heightMm: fixture.referenceHeight.valueMm })
+    const chip = chipPoint(event.clientX, event.clientY)
+    moveFeedback.begin(fixture.id, { offsetMm: fixture.offset.valueMm, heightMm: fixture.referenceHeight.valueMm }, chip.left, chip.top)
   }
   function onPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     const drag = dragRef.current
     if (!drag) return
     const point = modelPoint(event)
     const snap = (value: number) => Math.round(value / 10) * 10
-    setPreview({ id: drag.id, offsetMm: snap(point.along + drag.dx), heightMm: Math.max(0, snap(point.up + drag.dy)) })
+    const offsetMm = snap(point.along + drag.dx)
+    const heightMm = Math.max(0, snap(point.up + drag.dy))
+    setPreview({ id: drag.id, offsetMm, heightMm })
+    const chip = chipPoint(event.clientX, event.clientY)
+    moveFeedback.schedule(drag.id, { offsetMm, heightMm }, chip.left, chip.top)
   }
   function onPointerUp() {
     const drag = dragRef.current
     dragRef.current = null
     const dropped = preview
     setPreview(null)
+    moveFeedback.clear()
     const fixture = drag && room.fixtures.find((candidate) => candidate.id === drag.id)
     if (fixture && dropped) tryCommit(fixture, dropped.offsetMm, dropped.heightMm)
   }
@@ -124,7 +152,7 @@ export function WallElevation({ layout, locale, wall, selectionId, resident, mob
       <div><p className="eyebrow">{t(locale, 'wallView')}</p><span>{wallLabel} · {(lengthMm / 1000).toFixed(2)} × {(heightMm / 1000).toFixed(2)} m</span></div>
       <div className="wall-selector" role="group" aria-label={t(locale, 'chooseWall')}>{WALLS.map((entry) => <Button key={entry.value} type="button" variant={wall === entry.value ? 'secondary' : 'ghost'} aria-pressed={wall === entry.value} onClick={() => onWallChange(entry.value)}>{t(locale, entry.label)}</Button>)}</div>
     </div>
-    <div className="canvas-stage elevation-stage">
+    <div className="canvas-stage elevation-stage" ref={stageRef}>
       <svg ref={svgRef} role="group" aria-label={`${t(locale, 'wallView')}: ${wallLabel}`} viewBox={`${-pad.left} ${-pad.top} ${lengthMm + pad.left + pad.right} ${heightMm + pad.top + pad.bottom}`} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onClick={(event) => { if (event.target === event.currentTarget) onSelect(null) }}>
         <rect x={0} y={0} width={lengthMm} height={heightMm} className="elevation-wall" onClick={() => onSelect(null)} />
         {/* Height scale in centimetres. */}
@@ -141,10 +169,17 @@ export function WallElevation({ layout, locale, wall, selectionId, resident, mob
           <rect x={0} y={y(band.maxMm)} width={lengthMm} height={Math.max(band.maxMm - band.minMm, 6)} />
           <text x={30 * k} y={y(band.maxMm) - 30 * k - index * 100 * k} fontSize={85 * k}>{t(locale, BENCHMARK_NAMES[band.benchmarkId])} {band.clause} · {band.minMm / 10}–{band.maxMm / 10}{band.pendingReview ? ` · ${t(locale, 'benchmarkPending')}` : ''}</text>
         </g>)}
-        {model.openings.map((opening) => <g key={opening.id} className={`elevation-opening elevation-${opening.kind}`} pointerEvents="none">
+        {model.openings.map((opening) => {
+          const status = checkStatuses.get(opening.id)
+          const boxY = y(opening.topMm)
+          const boxHeight = opening.topMm - opening.bottomMm
+          const label = t(locale, opening.kind)
+          return <g key={opening.id} data-opening-id={opening.id} data-entity-check-status={showCheckMarks ? status?.status : undefined} className={`elevation-opening elevation-${opening.kind}`} pointerEvents={showCheckMarks && status && status.status !== 'clear' ? undefined : 'none'}>
+          {showCheckMarks && status && status.status !== 'clear' && <rect x={opening.startMm - 24 * k} y={boxY - 24 * k} width={opening.endMm - opening.startMm + 48 * k} height={boxHeight + 48 * k} className={`check-marker-outline check-marker-outline-${status.status}`} />}
           <rect x={opening.startMm} y={y(opening.topMm)} width={opening.endMm - opening.startMm} height={opening.topMm - opening.bottomMm} strokeWidth={16 * k} />
-          <title>{t(locale, opening.kind === 'door' ? 'door' : 'window')}</title>
-        </g>)}
+          {showCheckMarks && status && <CheckMarkBadge status={status} entityId={opening.id} entityLabel={label} locale={locale} x={opening.endMm} y={boxY} size={400 * k} onActivate={onSelectCheckResult} />}
+          <title>{label}</title>
+        </g>})}
         {model.silhouettes.map((item) => <g key={item.id} className="elevation-silhouette" pointerEvents="none">
           <rect x={Math.max(0, item.startMm)} y={y(item.topMm)} width={Math.min(lengthMm, item.endMm) - Math.max(0, item.startMm)} height={item.topMm} rx={30 * k} strokeWidth={10 * k} strokeDasharray={`${50 * k} ${34 * k}`} />
           <text x={(Math.max(0, item.startMm) + Math.min(lengthMm, item.endMm)) / 2} y={y(item.topMm / 2)} textAnchor="middle" dominantBaseline="central" fontSize={80 * k}>{item.label}</text>
@@ -153,25 +188,32 @@ export function WallElevation({ layout, locale, wall, selectionId, resident, mob
         {model.fixtures.map((box) => {
           const fixture = room.fixtures.find((candidate) => candidate.id === box.id)!
           const selected = selectionId === box.id
+          const status = checkStatuses.get(box.id)
           const grow = 22 * k
-          return <g key={box.id} role="button" tabIndex={0} aria-pressed={selected} aria-label={`${box.label}, ${box.referenceHeightMm} mm`}
-            data-fixture-id={box.id} data-offset-mm={(box.startMm + box.endMm) / 2} data-height-mm={box.referenceHeightMm}
+          return <g key={box.id}>
+          <g role="button" tabIndex={0} aria-pressed={selected} aria-label={`${box.label}, ${box.referenceHeightMm} mm`}
+            data-fixture-id={box.id} data-offset-mm={(box.startMm + box.endMm) / 2} data-height-mm={box.referenceHeightMm} data-entity-check-status={showCheckMarks ? status?.status : undefined}
             className={`elevation-fixture ${fixture.kind.startsWith('grab-bar') ? 'elevation-fixture-bar' : ''} ${selected ? 'selected' : ''} ${highlightIds.includes(box.id) ? 'changed' : ''}`}
             onPointerDown={(event) => onPointerDown(event, fixture)} onKeyDown={(event) => onKeyDown(event, fixture)}>
             {/* A generous invisible target so thin bars are easy to grab. */}
             <rect className="elevation-hit" x={box.startMm - 60 * k} y={y(box.topMm) - 60 * k} width={box.endMm - box.startMm + 120 * k} height={box.topMm - box.bottomMm + 120 * k} />
+            {showCheckMarks && status && status.status !== 'clear' && <rect x={box.startMm - 24 * k} y={y(box.topMm) - 24 * k} width={box.endMm - box.startMm + 48 * k} height={box.topMm - box.bottomMm + 48 * k} className={`check-marker-outline check-marker-outline-${status.status}`} />}
             <rect className="elevation-shape" x={box.startMm - grow / 2} y={y(box.topMm) - grow / 2} width={box.endMm - box.startMm + grow} height={box.topMm - box.bottomMm + grow} rx={grow} strokeWidth={10 * k} />
             {selected && <text x={(box.startMm + box.endMm) / 2} y={y(box.topMm) - 70 * k} textAnchor="middle" fontSize={90 * k} className="elevation-fixture-label" pointerEvents="none">{box.label} · {box.referenceHeightMm / 10} {t(locale, 'unitCm')}</text>}
             <title>{`${box.label} · ${box.referenceHeightMm} mm`}</title>
           </g>
+          {showCheckMarks && status && status.status !== 'clear' && <CheckMarkBadge status={status} entityId={box.id} entityLabel={box.label} locale={locale} x={box.endMm} y={y(box.topMm)} size={400 * k} onActivate={onSelectCheckResult} />}
+          </g>
         })}
       </svg>
-      {message && <p role="alert" className="canvas-alert">{message}</p>}
+      {(message || previewProblem) && <p role="alert" className="canvas-alert">{message || t(locale, previewProblem === 'over-opening' ? 'fixtureOverOpening' : 'fixtureOutsideWall')}</p>}
+      {moveFeedback.preview && !message && !previewProblem && <div className="move-check-chip" data-testid="move-check-chip" style={{ left: moveFeedback.preview.left, top: moveFeedback.preview.top }} aria-hidden="true">{moveFeedback.preview.attention.length ? `${moveFeedback.preview.attention.length} ${t(locale, moveFeedback.preview.attention.length === 1 ? 'moveNeedsAttentionOne' : 'moveNeedsAttentionMany')}: ${t(locale, moveFeedback.preview.attention[0].messageKey as MessageKey)}` : t(locale, 'moveNoAttention')}</div>}
+      <span className="sr-only" data-testid="move-check-live" aria-live="polite">{moveFeedback.announcement}</span>
     </div>
     <div className="elevation-add">
       <label className="field-label">{t(locale, 'addFixture')}<select value={newKind} disabled={!editable} onChange={(event) => setNewKind(event.target.value as FixtureKind)}>{FIXTURE_CATALOG.map((entry) => <option key={entry.kind} value={entry.kind}>{entry.label[locale]}</option>)}</select></label>
       <Button type="button" variant="outline" disabled={!editable || room.fixtures.length >= 60} onClick={addFixture}>{t(locale, 'addToThisWall')}</Button>
     </div>
-    <div className="canvas-legend"><span>{t(locale, 'elevationHelp')}</span></div>
+    <div className="canvas-legend"><span>{t(locale, 'elevationHelp')}</span>{showCheckMarks && <><span><i className="legend-check-marker legend-check-attention">!</i>{t(locale, 'checkMarkerLegendAttention')}</span><span><i className="legend-check-marker legend-check-not-evaluated">?</i>{t(locale, 'checkMarkerLegendNotEvaluated')}</span></>}</div>
   </div>
 }

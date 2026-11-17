@@ -10,7 +10,7 @@ const DEFAULT_ROOM_SIZE: Record<RoomType, { width: number; depth: number; height
 }
 
 export function emptyResident(): ResidentProfile {
-  return { standingHeight: null, reach: null, strongerHand: 'unknown', wheelchair: null, falls: [] }
+  return { standingHeight: null, reach: null, strongerHand: 'unknown', wheelchair: null, falls: [], needs: [] }
 }
 
 export function createRoom(type: RoomType, size = DEFAULT_ROOM_SIZE[type]): RoomSpace {
@@ -36,6 +36,7 @@ export function createEmptyProject(id: string, now: string, roomType: RoomType =
     benchmarkPolicy: null,
     targets: { routeWidth: null, turningDiameter: null }, recommendations: [], review: null,
     report: { includeFallHistory: false },
+    checklist: [],
   }
 }
 

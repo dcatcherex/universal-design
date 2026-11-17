@@ -78,7 +78,7 @@ export function ItemInspector({ item, layout, locale, editable, advisorMode = fa
     <div className="field-grid">{input(t(locale, 'positionX'), item.center.xMm, (value) => updatePosition('xMm', value))}{input(t(locale, 'positionY'), item.center.yMm, (value) => updatePosition('yMm', value))}</div>
     <div className="field-grid">{input(t(locale, 'widthCm'), item.width.valueMm, (value) => updateMeasure('width', value))}{input(t(locale, 'depthCm'), item.depth.valueMm, (value) => updateMeasure('depth', value))}</div>
     {input(t(locale, 'heightCm'), item.height.valueMm, (value) => updateMeasure('height', value))}
-    {catalog?.hasSeatHeight && <MeasureField label={t(locale, 'seatHeightCm')} measurement={item.seatHeight ?? null} locale={locale} editable={editable} advisorMode={advisorMode} min={1} max={1500} optional onChange={(seatHeight) => update({ seatHeight })} />}
+    {catalog?.hasSeatHeight && <MeasureField label={t(locale, 'seatHeightCm')} measurement={item.seatHeight ?? null} locale={locale} editable={editable} advisorMode={advisorMode} min={1} max={1500} optional focusTarget="toilet-seat" onChange={(seatHeight) => update({ seatHeight })} />}
     <div className="inspector-detail"><span>{t(locale, 'rotation')}</span><strong>{item.rotationDeg}°</strong></div>
     <Button type="button" variant="outline" className="wide-button" disabled={!editable} onClick={() => update({ rotationDeg: ((item.rotationDeg + 90) % 360) as FurnitureItem['rotationDeg'] })}>{t(locale, 'rotate90')}</Button>
     <fieldset className="finish-field" disabled={!editable}>

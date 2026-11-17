@@ -145,7 +145,9 @@ export type ResidentProfile = {
   strongerHand: 'left' | 'right' | 'both' | 'unknown'
   wheelchair: { width: Measurement; length: Measurement } | null
   falls: FallRecord[]
+  needs?: ResidentNeed[]
 }
+export type ResidentNeed = 'cane' | 'walker' | 'wheelchair' | 'weak-grip' | 'difficulty-standing-up' | 'unsteady-balance'
 export type CostRange = { lowSatang: number; highSatang: number; sourceNote: string; estimatedAt: string }
 
 export type RuleId =
@@ -171,6 +173,8 @@ export type Recommendation = {
   /** Set when the recommendation was created by applying a fix from the library. */
   fixId?: string
   ruleId?: RuleId
+  /** Links a recommendation drafted from a walk-through finding. */
+  findingQuestionId?: string
 }
 export type ReviewReceipt = {
   reviewerName: string
@@ -206,6 +210,8 @@ export type CheckResult = {
   basis: 'benchmark' | 'resident' | 'geometry' | 'manual'
   /** Within the display distance of a recorded fall, or in a room with an unlocated fall. */
   nearFall: boolean
+  /** Needs that make this check more relevant; this never changes the check itself. */
+  relevantNeeds?: ResidentNeed[]
   evidence: {
     confidence: Confidence
     origin: 'geometry' | 'project-target' | 'custom-overlay' | 'manual' | 'benchmark' | 'resident'
@@ -229,6 +235,18 @@ export type Project = {
   recommendations: Recommendation[]
   review: ReviewReceipt | null
   report: { includeFallHistory: boolean }
+  checklist?: ChecklistAnswer[]
+}
+export type ChecklistAnswer = {
+  questionId: string
+  answer: 'yes' | 'no' | 'unsure' | 'not-applicable'
+  note: string
+  answeredAt: string
+}
+export type ChecklistFinding = {
+  questionId: string
+  kind: 'hazard' | 'get-checked'
+  note: string
 }
 export type Result<T> =
   | { ok: true; value: T }

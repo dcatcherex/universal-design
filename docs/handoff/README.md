@@ -1,8 +1,8 @@
 # Implementation handoff — Thailand Home Adaptation Planner
 
-## Next work: R1 — Benchmarks and bathroom
+## Next work: close R1 human-verification blockers
 
-**R1 is mostly built (2026-11-16). Start from [R1 remaining work](r1-remaining-work.md)**, which lists the verified state, the four failing browser tests and every task still open. The reading list below is its background.
+Packages 1–10 and 12–14 are implemented; Package 11 records the final automated verification and handoff. Use [R1 verification](verification-r1.md), [R1 remaining work](r1-remaining-work.md), and [progress](progress.md). R1 is not cleared for release: checklist source adaptation rights, native Thai review, and the six source/price facts in the verification matrix remain open and must not be treated as passed.
 
 Read in this order:
 1. Repository `AGENTS.md` and the installed Next.js guides relevant to your first task.
@@ -22,7 +22,7 @@ Read in this order:
 
 ## Current state
 
-The Thailand Home Adaptation Planner implementation is complete through M4. Read [progress](progress.md) for completed tasks, verification outcomes and limitations, and [verification](verification.md) for the A01–A12 evidence matrix. The original implementation brief below is retained as the product scope reference.
+The Thailand Home Adaptation Planner implementation is complete through R1 Packages 1–10 and 12–14. Package 11 documents the automated checks and outstanding release blockers. Read [progress](progress.md) and [R1 verification](verification-r1.md) for evidence and limitations, and [verification](verification.md) for the prior A01–A12 matrix. The original implementation brief below is retained as the product scope reference.
 
 ## Assignment to paste into the implementation chat
 
@@ -72,7 +72,8 @@ The primary agent should inspect the diff and reproduction evidence at these che
 ## Design decisions to preserve
 
 - Current/proposed layouts are independent documents within one project; do not maintain a second model for 3D.
-- 2D/numeric forms edit furniture; 3D is inspection/selection.
+- Floor furniture can also be dragged in 3D with 50 mm snapping. The 2D plan and numeric fields remain the precise placement tools, and keyboard movement stays in the 2D plan. 3D does not move wall fixtures or support rotation, resizing, adding, or deleting; wall fixtures are edited in the wall elevation.
+- Resident need presets are language-independent, additive to the legacy mobility-aid labels, and used only to mark relevant checks and surface missing-data prompts; they never supply benchmark values or dimensions.
 - Advisor mode is a local interface mode, not authentication or identity verification.
 - Geometric conflict checks are implementable immediately. Numeric accessibility targets are advisor-entered and labelled as project-specific; legal rules need separate verified source work.
 - Unknown dimensions/costs and missing checks remain visibly unknown; they do not become zero or “safe.”

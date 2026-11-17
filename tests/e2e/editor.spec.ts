@@ -1,6 +1,37 @@
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { readFile } from 'node:fs/promises'
+import { Plane, Raycaster, Vector2, Vector3 } from 'three'
+import { createExampleProject } from '../../lib/planner/fixtures'
+import { getPrimaryRoom } from '../../lib/planner/layout-access'
+import { createRoomCamera } from '../../lib/planner/scene/camera'
+
+type CanvasBounds = { x: number; y: number; width: number; height: number }
+
+function projectedCanvasPoint(bounds: CanvasBounds, camera: ReturnType<typeof createRoomCamera>, world: Vector3) {
+  camera.updateMatrixWorld(true)
+  const point = world.clone().project(camera)
+  return { x: bounds.x + (point.x + 1) * bounds.width / 2, y: bounds.y + (1 - point.y) * bounds.height / 2 }
+}
+
+function floorPointAt(bounds: CanvasBounds, camera: ReturnType<typeof createRoomCamera>, point: { x: number; y: number }) {
+  const raycaster = new Raycaster()
+  raycaster.setFromCamera(new Vector2((point.x - bounds.x) * 2 / bounds.width - 1, 1 - (point.y - bounds.y) * 2 / bounds.height), camera)
+  const floor = raycaster.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), 0), new Vector3())
+  if (!floor) throw new Error('Pointer ray did not intersect the floor')
+  return floor
+}
+
+function furnitureDragPoints(bounds: CanvasBounds, centerMm: { xMm: number; yMm: number }, heightMm: number, targetMm: { xMm: number; yMm: number }) {
+  const room = getPrimaryRoom(createExampleProject('scene-drag-test').proposed!)
+  const camera = createRoomCamera(room, bounds.width / bounds.height)
+  const start = projectedCanvasPoint(bounds, camera, new Vector3(centerMm.xMm / 1000, heightMm / 1000, centerMm.yMm / 1000))
+  const startFloor = floorPointAt(bounds, camera, start)
+  const offsetX = centerMm.xMm / 1000 - startFloor.x
+  const offsetZ = centerMm.yMm / 1000 - startFloor.z
+  const target = projectedCanvasPoint(bounds, camera, new Vector3(targetMm.xMm / 1000 - offsetX, 0, targetMm.yMm / 1000 - offsetZ))
+  return { start, target }
+}
 
 test('opens the fictional room example in Thai', async ({ page }) => {
   await page.goto('/')
@@ -53,6 +84,7 @@ test('cancels a pending placement and rejects an out-of-bounds drag', async ({ p
   await page.mouse.move(sofa.x + sofa.width / 2, sofa.y + sofa.height / 2)
   await page.mouse.down()
   await page.mouse.move(svgBox.x + svgBox.width * 0.99, svgBox.y + svgBox.height * 0.84, { steps: 6 })
+  await expect.poll(async () => Number(await page.locator('[data-item-id="sofa-1"]').getAttribute('data-x-mm'))).toBeGreaterThan(6000)
   await page.mouse.up()
   await expect(page.getByText(/อยู่นอกขอบเขตห้อง/)).toBeVisible()
   await expect(page.locator('[data-item-id="sofa-1"]')).toHaveAttribute('data-x-mm', '3000')
@@ -77,6 +109,51 @@ test('creates a new room, places furniture, and keeps the proposal separate', as
   await expect(page.locator('[data-item-id^="item-"]')).toHaveAttribute('data-x-mm', '3500')
   await page.getByRole('button', { name: 'ก่อนปรับปรุง' }).click()
   await expect(page.locator('[data-item-id^="item-"]')).toHaveAttribute('data-x-mm', '3000')
+})
+
+test('click-to-place maps coordinates through the wall-margin viewBox', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'สร้างโครงการใหม่' }).click()
+  await page.getByLabel('ชื่อโครงการ').fill('ห้องทดสอบพิกัด')
+  await page.getByRole('button', { name: 'เริ่มโครงการ' }).click()
+  await page.getByRole('button', { name: 'โต๊ะกลาง, 1100 × 600 × 450 mm' }).click()
+  const svg = page.locator('svg[aria-label^="แผนผังห้อง"]')
+  const target = await svg.evaluate((element) => {
+    const plan = element as SVGSVGElement
+    const roomWidth = plan.viewBox.baseVal.width - 720
+    const roomDepth = plan.viewBox.baseVal.height - 720
+    const point = plan.createSVGPoint()
+    point.x = roomWidth * .55
+    point.y = roomDepth * .45
+    const expectedX = Math.round(point.x / 50) * 50
+    const expectedY = Math.round(point.y / 50) * 50
+    const client = point.matrixTransform(plan.getScreenCTM()!)
+    return { clientX: client.x, clientY: client.y, expectedX, expectedY }
+  })
+  await page.mouse.click(target.clientX, target.clientY)
+  const item = page.locator('[data-item-id^="item-"]')
+  await expect(item).toHaveAttribute('data-x-mm', String(target.expectedX))
+  await expect(item).toHaveAttribute('data-y-mm', String(target.expectedY))
+})
+
+test('persists the dimensions toggle and hides wall chains at 390px', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'เปิดตัวอย่างโครงการ' }).click()
+  const plan = page.locator('svg[aria-label^="แผนผังห้อง"]')
+  const toggle = page.getByRole('button', { name: 'ขนาด: แสดง' })
+  await expect(plan.locator('[data-dimension-kind="overall"]')).toHaveCount(2)
+  await toggle.click()
+  await expect(plan.locator('[data-dimension-id]')).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('button', { name: 'เปิดตัวอย่างโครงการ' }).click()
+  await expect(page.getByRole('button', { name: 'ขนาด: ซ่อน' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.locator('svg[aria-label^="แผนผังห้อง"] [data-dimension-id]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'ขนาด: ซ่อน' }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  const mobilePlan = page.locator('svg[aria-label^="แผนผังห้อง"]')
+  await expect(mobilePlan.locator('[data-dimension-kind="overall"]')).toHaveCount(2)
+  await expect(mobilePlan.locator('.plan-dimension-chain').first()).toBeHidden()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 })
 
 test('moves a selected item by keyboard and stays usable on a narrow screen', async ({ page }) => {
@@ -138,7 +215,7 @@ test('autosaves, reopens after reload, and round-trips a project file', async ({
   await expect(page.locator('[data-item-id="coffee-table-1"]')).toHaveAttribute('data-x-mm', '3500')
 })
 
-test('loads a read-only 3D inspection for the active proposal and resets its camera', async ({ page }) => {
+test('loads the 3D inspection for the active proposal and resets its camera', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
   await page.getByRole('button', { name: 'เปิดตัวอย่างโครงการ' }).click()
@@ -187,6 +264,101 @@ test('loads a read-only 3D inspection for the active proposal and resets its cam
     await page.getByRole('button', { name: 'แผนผัง 2 มิติ' }).click()
     await expect(page.getByTestId('room-scene-canvas')).toHaveCount(0)
   }
+})
+
+test('moves only floor furniture by 3D drag with shared validation and one-step undo', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'เปิดตัวอย่างโครงการ' }).click()
+  await page.getByRole('button', { name: 'หลังปรับปรุง' }).click()
+  const table = page.locator('.item-list').getByRole('button', { name: /โต๊ะกลาง/ })
+  await table.click()
+  await page.getByRole('button', { name: 'มุมมอง 3 มิติ' }).click()
+  const canvas = page.getByTestId('room-scene-canvas')
+  await expect(canvas).toBeVisible()
+  const bounds = await canvas.boundingBox()
+  if (!bounds) throw new Error('3D room canvas is not visible')
+  const original = { xMm: 3000, yMm: 1800 }
+  const validMove = furnitureDragPoints(bounds, original, 450, { xMm: 3500, yMm: 1800 })
+  await page.mouse.move(validMove.start.x, validMove.start.y)
+  await page.mouse.down()
+  await page.mouse.move(validMove.target.x, validMove.target.y, { steps: 8 })
+  await page.mouse.up()
+  await expect(page.getByLabel('ตำแหน่ง X (ซม.)')).toHaveValue('350')
+  await expect(page.getByLabel('ตำแหน่ง Y (ซม.)')).toHaveValue('180')
+
+  const cancelledMove = furnitureDragPoints(bounds, { xMm: 3500, yMm: 1800 }, 450, { xMm: 4000, yMm: 1800 })
+  await page.mouse.move(cancelledMove.start.x, cancelledMove.start.y)
+  await page.mouse.down()
+  await page.mouse.move(cancelledMove.target.x, cancelledMove.target.y, { steps: 6 })
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  await expect(page.getByLabel('ตำแหน่ง X (ซม.)')).toHaveValue('350')
+
+  const invalidMove = furnitureDragPoints(bounds, { xMm: 3500, yMm: 1800 }, 450, { xMm: 5700, yMm: 1800 })
+  await page.mouse.move(invalidMove.start.x, invalidMove.start.y)
+  await page.mouse.down()
+  await page.mouse.move(invalidMove.target.x, invalidMove.target.y, { steps: 8 })
+  await page.mouse.up()
+  await expect(page.getByRole('status').filter({ hasText: /อยู่นอกขอบเขตห้อง/ })).toBeVisible()
+
+  const orbitRoom = getPrimaryRoom(createExampleProject('empty-orbit-test').proposed!)
+  const orbitCamera = createRoomCamera(orbitRoom, bounds.width / bounds.height)
+  const emptyFloor = projectedCanvasPoint(bounds, orbitCamera, new Vector3(5.5, 0, 2.8))
+  const beforeOrbit = await canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL())
+  await page.mouse.move(emptyFloor.x, emptyFloor.y)
+  await page.mouse.down()
+  await page.mouse.move(emptyFloor.x + 34, emptyFloor.y + 24, { steps: 4 })
+  await page.mouse.up()
+  const afterOrbit = await canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL())
+  expect(afterOrbit).not.toBe(beforeOrbit)
+
+  await page.getByRole('button', { name: 'แผนผัง 2 มิติ' }).click()
+  const planTable = page.locator('[data-item-id="coffee-table-1"]')
+  await expect(planTable).toHaveAttribute('data-x-mm', '3500')
+  await expect(planTable).toHaveAttribute('data-y-mm', '1800')
+  await expect(page.getByLabel('ตำแหน่ง X (ซม.)')).toHaveValue('350')
+  await page.getByRole('button', { name: 'เลิกทำ' }).click()
+  await expect(planTable).toHaveAttribute('data-x-mm', '3000')
+  await expect(planTable).toHaveAttribute('data-y-mm', '1800')
+  await expect(page.getByLabel('ตำแหน่ง X (ซม.)')).toHaveValue('300')
+
+  await page.getByRole('tab', { name: 'อุปกรณ์ติดผนัง' }).click()
+  await page.getByRole('button', { name: 'เพิ่มอุปกรณ์' }).click()
+  const fixture = page.locator('.fixture-list button').first()
+  await expect(fixture).toBeVisible()
+  await page.getByRole('button', { name: 'มุมมอง 3 มิติ' }).click()
+  const fixtureCanvas = page.getByTestId('room-scene-canvas')
+  const fixtureBounds = await fixtureCanvas.boundingBox()
+  if (!fixtureBounds) throw new Error('3D room canvas is not visible')
+  const fixtureCamera = createRoomCamera(getPrimaryRoom(createExampleProject('fixture-drag-test').proposed!), fixtureBounds.width / fixtureBounds.height)
+  const fixturePoint = projectedCanvasPoint(fixtureBounds, fixtureCamera, new Vector3(3, 0.8, 0.08))
+  await page.mouse.move(fixturePoint.x, fixturePoint.y)
+  await page.mouse.down()
+  await page.mouse.move(fixturePoint.x + 34, fixturePoint.y + 24, { steps: 5 })
+  await page.mouse.up()
+  await page.getByRole('button', { name: 'แผนผัง 2 มิติ' }).click()
+  await expect(page.locator('[data-fixture-id]').first()).toHaveAttribute('data-offset-mm', '3000')
+})
+
+test('keeps a locked current layout read-only to 3D dragging', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'เปิดตัวอย่างโครงการ' }).click()
+  const currentTable = page.locator('.item-list').getByRole('button', { name: /โต๊ะกลาง/ })
+  await currentTable.click()
+  await page.getByRole('button', { name: 'มุมมอง 3 มิติ' }).click()
+  const canvas = page.getByTestId('room-scene-canvas')
+  const bounds = await canvas.boundingBox()
+  if (!bounds) throw new Error('3D room canvas is not visible')
+  const drag = furnitureDragPoints(bounds, { xMm: 3000, yMm: 500 }, 450, { xMm: 3500, yMm: 500 })
+  await page.mouse.move(drag.start.x, drag.start.y)
+  await page.mouse.down()
+  await page.mouse.move(drag.target.x, drag.target.y, { steps: 8 })
+  await page.mouse.up()
+  await page.getByRole('button', { name: 'แผนผัง 2 มิติ' }).click()
+  await expect(page.locator('[data-item-id="coffee-table-1"]')).toHaveAttribute('data-x-mm', '3000')
+  await expect(page.locator('[data-item-id="coffee-table-1"]')).toHaveAttribute('data-y-mm', '500')
 })
 
 test('falls back to the 2D editor and JSON download when WebGL cannot start', async ({ page }) => {
@@ -252,6 +424,9 @@ test('draws overlays on the plan and requires advisor-entered, project-specific 
   await expect(svg.locator('.overlay-draft-point')).toHaveCount(2)
   await page.getByRole('button', { name: 'จบแนวทางเดิน' }).click()
   await expect(page.locator('[data-overlay-id^="route-"]')).toHaveCount(1)
+  const routeLines = page.locator('[data-overlay-id^="route-"] polyline')
+  await expect(routeLines).toHaveCount(2)
+  await expect(routeLines.nth(1)).toHaveAttribute('stroke-dasharray', /\S+/)
   // v2: a corridor with no width of its own is tested at the benchmark width, with a verdict per benchmark.
   const drawnRoute = page.locator('[data-rule-id="G04"]').filter({ hasText: 'การเปรียบเทียบกับเกณฑ์อ้างอิง' })
   await expect(drawnRoute).toBeVisible()
@@ -261,6 +436,7 @@ test('draws overlays on the plan and requires advisor-entered, project-specific 
   await page.getByRole('button', { name: 'วางบนแผนผัง' }).click()
   await svg.click({ position: { x: 300, y: 300 } })
   await expect(page.locator('[data-overlay-id^="turning-"]')).toHaveCount(1)
+  await expect(page.locator('[data-overlay-id^="turning-"] circle:not(.check-marker-outline)')).toHaveAttribute('stroke-dasharray', /\S+/)
   await expect(page.locator('[data-rule-id="G05"][data-check-status="not-evaluated"]')).toBeVisible()
 
   await page.getByRole('button', { name: 'ผู้ให้คำปรึกษา' }).click()
@@ -332,6 +508,12 @@ test('downloads a valid Thai SVG and prints a fresh report from the selected pro
   const download = await svgDownload
   expect(download.suggestedFilename()).toMatch(/\.svg$/)
   const svg = await readFile((await download.path())!, 'utf8')
+  expect(svg).toContain('data-dimension-id="overall-width"')
+  expect(svg).toContain('data-item-number="1"')
+  expect(svg).toContain('data-plan-annotation="room-label"')
+  expect(svg).toContain('data-plan-annotation="scale-bar"')
+  expect(svg).toContain('data-plan-annotation="north-arrow"')
+  expect(svg).toContain('6.00 m')
   const parsed = await page.evaluate((source) => {
     const document = new DOMParser().parseFromString(source, 'image/svg+xml')
     return { root: document.documentElement.localName, namespace: document.documentElement.namespaceURI, errors: document.querySelector('parsererror')?.textContent ?? null }
@@ -345,7 +527,7 @@ test('downloads a valid Thai SVG and prints a fresh report from the selected pro
   await expect(report).toBeVisible()
   await expect(report.getByRole('heading', { name: 'ก่อนปรับปรุง' })).toBeVisible()
   await expect(report.getByRole('heading', { name: 'หลังปรับปรุง' })).toBeVisible()
-  await expect(report.getByText(/แนวทางเดินที่วาดตัดกับสิ่งของทึบ/)).toBeVisible()
+  await expect(report.locator('.report-plan').first().locator('.report-check-list').getByText(/แนวทางเดินที่วาดตัดกับสิ่งของทึบ/)).toBeVisible()
   await page.screenshot({ path: path.resolve('docs/handoff/evidence/m4-thai-report.png') })
   await report.getByRole('button', { name: 'พิมพ์ \/ บันทึกเป็น PDF' }).click()
   await expect.poll(() => page.evaluate(() => (window as Window & { __printed?: boolean }).__printed)).toBe(true)

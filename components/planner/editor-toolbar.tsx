@@ -3,10 +3,15 @@
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/planner/i18n'
 import { usePlanner } from './planner-provider'
+import type { CheckSummary } from '@/lib/planner/checks'
+import { CheckAttentionComparison } from './check-summary'
 
 export type WorkspaceView = '2d' | 'wall' | '3d'
 
-export function EditorToolbar({ onHome, view, onViewChange, viewUnavailable }: { onHome(): void; view: WorkspaceView; onViewChange(view: WorkspaceView): void; viewUnavailable: boolean }) {
+export function EditorToolbar({ onHome, view, onViewChange, viewUnavailable, currentSummary, proposedSummary }: {
+  onHome(): void; view: WorkspaceView; onViewChange(view: WorkspaceView): void; viewUnavailable: boolean
+  currentSummary: CheckSummary; proposedSummary: CheckSummary
+}) {
   const planner = usePlanner()
   const { locale, activeLayoutId, project } = planner
   const proposalExists = !!project.proposed
@@ -18,6 +23,7 @@ export function EditorToolbar({ onHome, view, onViewChange, viewUnavailable }: {
     <div className="layout-switch" role="group" aria-label={locale === 'th' ? 'เลือกแผนผัง' : 'Choose layout'}>
       <Button type="button" variant={activeLayoutId === 'current' ? 'secondary' : 'ghost'} aria-pressed={activeLayoutId === 'current'} onClick={() => planner.setActiveLayout('current')}>{t(locale, 'current')}</Button>
       {proposalExists && <Button type="button" variant={activeLayoutId === 'proposed' ? 'secondary' : 'ghost'} aria-pressed={activeLayoutId === 'proposed'} onClick={() => planner.setActiveLayout('proposed')}>{t(locale, 'proposed')}</Button>}
+      {proposalExists && <CheckAttentionComparison current={currentSummary} proposed={proposedSummary} locale={locale} />}
     </div>
     <div className="toolbar-actions">
       <Button type="button" variant="outline" onClick={onHome}>{t(locale, 'home')}</Button>

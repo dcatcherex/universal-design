@@ -24,6 +24,7 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
   const [preferences, setPreferences] = useState<PlannerPreferences>(defaultPreferences)
   const projectRef = useRef(project)
   const lastSavedProjectRef = useRef<Project | null>(null)
+  const failedProjectRef = useRef<Project | null>(null)
   const onLoadRef = useRef(onLoad)
   const onPreferencesRef = useRef(onPreferences)
   const tokenRef = useRef<string | null>(null)
@@ -79,13 +80,13 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
   }, [])
 
   useEffect(() => {
-    if (!hydrated || !enabled || project === lastSavedProjectRef.current || saveState === 'conflict' || saveState === 'corrupt') return
+    if (!hydrated || !enabled || project === lastSavedProjectRef.current || project === failedProjectRef.current || saveState === 'conflict' || saveState === 'corrupt') return
     const generation = ++generationRef.current
     const markUnsaved = window.setTimeout(() => { setSaveState('unsaved'); setErrorKey(null) }, 0)
     const timeout = window.setTimeout(() => {
       let storage: Storage
       try { storage = window.localStorage } catch {
-        if (generationRef.current === generation) { setSaveState('error'); setErrorKey('storage.unavailable') }
+        if (generationRef.current === generation) { failedProjectRef.current = projectRef.current; setSaveState('error'); setErrorKey('storage.unavailable') }
         return
       }
       const token = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -94,10 +95,12 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
       if (result.ok) {
         tokenRef.current = result.value.writeToken
         lastSavedProjectRef.current = projectRef.current
+        failedProjectRef.current = null
         setLastSavedToken(result.value.writeToken)
         setSavedProjectAvailable(true)
         setSaveState('saved')
       } else {
+        failedProjectRef.current = projectRef.current
         setSaveState(result.error.code === 'storage-conflict' ? 'conflict' : 'error')
         setErrorKey(result.error.messageKey)
       }
@@ -135,17 +138,20 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
   const saveNow = useCallback(() => {
     let storage: Storage
     try { storage = window.localStorage } catch {
+      failedProjectRef.current = projectRef.current
       setSaveState('error'); setErrorKey('storage.unavailable'); return false
     }
     const token = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const result = saveProject(storage, projectRef.current, tokenRef.current, token)
     if (!result.ok) {
+      failedProjectRef.current = projectRef.current
       setSaveState(result.error.code === 'storage-conflict' ? 'conflict' : 'error')
       setErrorKey(result.error.messageKey)
       return false
     }
     tokenRef.current = result.value.writeToken
     lastSavedProjectRef.current = result.value.project
+    failedProjectRef.current = null
     setLastSavedToken(result.value.writeToken)
     setSavedProjectAvailable(true)
     setSaveState('saved')
@@ -158,6 +164,7 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
     if (!result.ok || !result.value) return false
     tokenRef.current = result.value.writeToken
     lastSavedProjectRef.current = projectRef.current
+    failedProjectRef.current = null
     setLastSavedToken(result.value.writeToken)
     setSavedProjectAvailable(true)
     onLoadRef.current(result.value.project)
@@ -170,6 +177,7 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
   const dismissUpgradeNotice = useCallback(() => setUpgradedFromV1(false), [])
 
   const allowOverwrite = useCallback(() => {
+    failedProjectRef.current = null
     setUpgradedFromV1(false)
     setSaveState('empty')
     setErrorKey(null)

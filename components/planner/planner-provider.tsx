@@ -14,6 +14,8 @@ type PlannerContextValue = {
   activeLayoutId: LayoutId
   activeLayout: Layout
   locale: Locale
+  showDimensions: boolean
+  showCheckMarks: boolean
   mode: 'family' | 'advisor'
   selectionId: string | null
   editingCurrent: boolean
@@ -37,6 +39,8 @@ type PlannerContextValue = {
   setActiveLayout(id: LayoutId): void
   setSelection(id: string | null): void
   setLocale(locale: Locale): void
+  setShowDimensions(show: boolean): void
+  setShowCheckMarks(show: boolean): void
   setMode(mode: 'family' | 'advisor'): void
   setEditingCurrent(value: boolean): void
 }
@@ -116,15 +120,17 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
     setMode(nextMode)
     persistence.savePreferenceValues({ ...persistence.preferences, mode: nextMode })
   }
+  const setShowDimensions = (show: boolean) => persistence.savePreferenceValues({ ...persistence.preferences, showDimensions: show })
+  const setShowCheckMarks = (show: boolean) => persistence.savePreferenceValues({ ...persistence.preferences, showCheckMarks: show })
 
   const value: PlannerContextValue = {
-    project, activeLayoutId, activeLayout, locale, mode, selectionId, editingCurrent, history,
+    project, activeLayoutId, activeLayout, locale, showDimensions: persistence.preferences.showDimensions, showCheckMarks: persistence.preferences.showCheckMarks, mode, selectionId, editingCurrent, history,
     saveState: persistence.saveState, savedProjectAvailable: persistence.savedProjectAvailable, errorKey: persistence.errorKey,
     upgradedFromV1: persistence.upgradedFromV1, dismissUpgradeNotice: persistence.dismissUpgradeNotice,
     saveNow: persistence.saveNow, downloadProject: persistence.downloadProject, downloadCorruptRaw: persistence.downloadCorruptRaw, replaceFromStorage: persistence.replaceFromStorage,
     commit, undo, redo,
     replaceProject, beginNewProject, openExample, setActiveLayout, setSelection: setSelectionId,
-    setLocale, setMode: setPlannerMode, setEditingCurrent,
+    setLocale, setShowDimensions, setShowCheckMarks, setMode: setPlannerMode, setEditingCurrent,
   }
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>

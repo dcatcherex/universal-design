@@ -9,8 +9,9 @@ import {
   rectanglesOverlap,
   sectorIntersectsRect,
 } from './geometry'
-import { toRoomPoint } from './layout-access'
-import { BENCHMARKS, canonicalMobilityAids, hasValue, getBenchmarkValues, strictestValue, type BenchmarkContext, type BenchmarkDataset, type BenchmarkKey } from './standards/benchmarks'
+import { getPrimaryRoom, toRoomPoint, withPrimaryRoom } from './layout-access'
+import { getRelevantNeedsForRule, getResidentNeeds } from './resident-needs'
+import { BENCHMARKS, hasValue, getBenchmarkValues, strictestValue, type BenchmarkContext, type BenchmarkDataset, type BenchmarkKey } from './standards/benchmarks'
 import { evaluateVerdict, isOnSiteVerified, needsProfessionalCheck, statusFromVerdicts, type Measured } from './standards/verdicts'
 import type {
   BenchmarkId, BenchmarkVerdict, CheckResult, Confidence, Floor, FurnitureItem, LayoutId, Measurement, Opening, PointMm, Project,
@@ -380,7 +381,7 @@ function evaluateFixtures(scope: Scope): CheckResult[] {
   const { room, project } = scope
   const output: CheckResult[] = []
   const reach = project.resident.reach
-  const usesWheelchair = canonicalMobilityAids(project.household.mobilityAids).includes('wheelchair')
+  const usesWheelchair = getResidentNeeds(project).includes('wheelchair')
   for (const fixture of room.fixtures) {
     // B04: basin rim height and the knee space under it.
     if (fixture.kind === 'basin') {
@@ -496,10 +497,11 @@ export function evaluateLayout(project: Project, layoutId: LayoutId, dataset: Be
   const layout = layoutId === 'current' ? project.current : project.proposed
   if (!layout) return []
   const output: CheckResult[] = []
+  const residentNeeds = getResidentNeeds(project)
   for (const floor of layout.floors) for (const room of floor.rooms) {
     const scope: Scope = {
       project, layoutId, floor, room, dataset,
-      context: { roomType: room.type, mobilityAids: project.household.mobilityAids },
+      context: { roomType: room.type, mobilityAids: residentNeeds },
       primary: project.benchmarkPolicy?.primary ?? null,
     }
     output.push(...tagNearFalls([
@@ -513,9 +515,113 @@ export function evaluateLayout(project: Project, layoutId: LayoutId, dataset: Be
       ...evaluateFixtures(scope),
       ...evaluateBathroomSurfaces(scope),
       ...evaluateManual(scope),
-    ], scope))
+    ], scope).map((entry) => {
+      const relevantNeeds = getRelevantNeedsForRule(entry.ruleId, residentNeeds)
+      return relevantNeeds.length ? { ...entry, relevantNeeds } : entry
+    }))
   }
   return output
+}
+
+export type MovePosition = PointMm | { offsetMm: number; heightMm: number }
+
+/** Evaluate a moved item or wall fixture on a copy; the input project and history remain untouched. */
+export function evaluateWithMove(project: Project, layoutId: LayoutId, entityId: string, position: MovePosition): CheckResult[] {
+  const layout = layoutId === 'current' ? project.current : project.proposed
+  if (!layout) return []
+  const room = getPrimaryRoom(layout)
+  const isItemMove = 'xMm' in position
+  const movedLayout = withPrimaryRoom(layout, (source) => {
+    if ('xMm' in position) {
+      return { ...source, items: source.items.map((item) => item.id === entityId ? { ...item, center: position } : item) }
+    }
+    return { ...source, fixtures: source.fixtures.map((fixture) => fixture.id === entityId
+      ? { ...fixture, offset: { valueMm: position.offsetMm, confidence: 'estimated' }, referenceHeight: { valueMm: position.heightMm, confidence: 'estimated' } }
+      : fixture) }
+  })
+  const exists = isItemMove ? room.items.some((item) => item.id === entityId) : room.fixtures.some((fixture) => fixture.id === entityId)
+  if (!exists) return evaluateLayout(project, layoutId)
+  const movedProject = layoutId === 'current' ? { ...project, current: movedLayout } : { ...project, proposed: movedLayout }
+  return evaluateLayout(movedProject, layoutId)
+}
+
+export type EntityCheckStatus = {
+  status: CheckResult['status']
+  nearFall: boolean
+  resultIds: string[]
+  attentionCount: number
+  notEvaluatedCount: number
+}
+
+/** Merge the already-computed results for drawing; never re-evaluates a check. */
+export function getEntityStatuses(results: readonly CheckResult[]): Map<string, EntityCheckStatus> {
+  const rank: Record<CheckResult['status'], number> = { clear: 0, 'not-evaluated': 1, attention: 2 }
+  const statuses = new Map<string, EntityCheckStatus>()
+  for (const result of results) {
+    for (const entityId of result.entityIds) {
+      const existing = statuses.get(entityId)
+      if (!existing) {
+        statuses.set(entityId, {
+          status: result.status,
+          nearFall: result.nearFall,
+          resultIds: [result.id],
+          attentionCount: result.status === 'attention' ? 1 : 0,
+          notEvaluatedCount: result.status === 'not-evaluated' ? 1 : 0,
+        })
+        continue
+      }
+      existing.status = rank[result.status] > rank[existing.status] ? result.status : existing.status
+      existing.nearFall ||= result.nearFall
+      if (!existing.resultIds.includes(result.id)) existing.resultIds.push(result.id)
+      if (result.status === 'attention') existing.attentionCount += 1
+      if (result.status === 'not-evaluated') existing.notEvaluatedCount += 1
+    }
+  }
+  return statuses
+}
+
+export type CheckSummary = {
+  attention: number
+  likelyAttention: number
+  notEvaluated: number
+  clear: number
+  total: number
+  nearFall: number
+}
+
+/** Count each derived result once, independently of its number of benchmark verdict rows. */
+export function summarizeChecks(results: readonly CheckResult[]): CheckSummary {
+  return results.reduce<CheckSummary>((summary, entry) => {
+    summary.total += 1
+    if (entry.status === 'attention') {
+      summary.attention += 1
+      if (entry.verdicts.some((verdict) => verdict.outcome === 'likely-does-not-meet')) summary.likelyAttention += 1
+    } else if (entry.status === 'not-evaluated') summary.notEvaluated += 1
+    else summary.clear += 1
+    if (entry.nearFall) summary.nearFall += 1
+    return summary
+  }, { attention: 0, likelyAttention: 0, notEvaluated: 0, clear: 0, total: 0, nearFall: 0 })
+}
+
+export type CheckStatusChange = {
+  ruleId: RuleId
+  entityIds: string[]
+  before: CheckResult
+  after: CheckResult
+}
+
+function checkComparisonKey(entry: CheckResult): string {
+  return JSON.stringify([entry.ruleId, [...entry.entityIds].sort()])
+}
+
+/** Compare matching rule/entity results; layout-specific result IDs are intentionally ignored. */
+export function compareCheckResults(before: readonly CheckResult[], after: readonly CheckResult[]): CheckStatusChange[] {
+  const afterByKey = new Map(after.map((entry) => [checkComparisonKey(entry), entry]))
+  return before.flatMap((beforeResult) => {
+    const afterResult = afterByKey.get(checkComparisonKey(beforeResult))
+    if (!afterResult || afterResult.status === beforeResult.status) return []
+    return [{ ruleId: beforeResult.ruleId, entityIds: [...beforeResult.entityIds], before: beforeResult, after: afterResult }]
+  }).sort((left, right) => left.ruleId.localeCompare(right.ruleId) || left.entityIds.join('|').localeCompare(right.entityIds.join('|')))
 }
 
 /** True when the result should be taken to a professional rather than acted on directly. */
@@ -531,6 +637,9 @@ function sortRank(entry: CheckResult): number {
 /** Display order (spec §5): near a fall first, then does not meet, likely does not meet, not evaluated, meets. */
 export function sortCheckResults(results: CheckResult[]): CheckResult[] {
   return results.map((entry, index) => ({ entry, index }))
-    .sort((a, b) => Number(b.entry.nearFall) - Number(a.entry.nearFall) || sortRank(a.entry) - sortRank(b.entry) || a.index - b.index)
+    .sort((a, b) => Number(b.entry.nearFall) - Number(a.entry.nearFall)
+      || Number(!!b.entry.relevantNeeds?.length) - Number(!!a.entry.relevantNeeds?.length)
+      || sortRank(a.entry) - sortRank(b.entry)
+      || a.index - b.index)
     .map(({ entry }) => entry)
 }

@@ -2,13 +2,16 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { resultNeedsProfessionalCheck, sortCheckResults } from '@/lib/planner/checks'
+import { resultNeedsProfessionalCheck, sortCheckResults, summarizeChecks, type CheckSummary } from '@/lib/planner/checks'
 import { DISCLAIMER } from '@/lib/planner/exports/report-data'
 import { getFixesForResult, type Fix } from '@/lib/planner/standards/fixes'
+import { getWalkthrough } from '@/lib/planner/standards/checklist'
 import { formatLength } from '@/lib/planner/units'
 import { t, type MessageKey } from '@/lib/planner/i18n'
-import type { BenchmarkId, CheckResult, Locale, Project, RoomType } from '@/lib/planner/types'
+import { getNeedPrompts, getResidentNeeds, NEED_LABEL_KEYS, type NeedPrompt } from '@/lib/planner/resident-needs'
+import type { BenchmarkId, CheckResult, Layout, Locale, Project, RoomType } from '@/lib/planner/types'
 import { BENCHMARK_NAME, BenchmarkVerdicts } from './benchmark-verdicts'
+import { CheckAttentionComparison, CheckSummaryCounts, type CheckSummaryFilter } from './check-summary'
 
 const origins = {
   geometry: 'originGeometry',
@@ -50,37 +53,62 @@ export function BenchmarkPolicy({ project, locale, onChange }: { project: Projec
   </section>
 }
 
-export function ChecksPanel({ results, locale, project, roomType, onSelectEntities, onCreateRecommendation, onPreviewFix }: {
+export function ChecksPanel({ results, locale, project, layout, roomType, editable, currentSummary, proposedSummary, hasProposed, onSelectEntities, onNeedPrompt, onCreateRecommendation, onPreviewFix }: {
   results: CheckResult[]
   locale: Locale
   project: Project
+  layout: Layout
   roomType: RoomType
+  editable: boolean
+  currentSummary: CheckSummary
+  proposedSummary: CheckSummary
+  hasProposed: boolean
   onSelectEntities(result: CheckResult): void
+  onNeedPrompt(prompt: NeedPrompt): void
   onCreateRecommendation?(result: CheckResult): void
   onPreviewFix?(result: CheckResult, fix: Fix): void
 }) {
-  const attention = results.filter((result) => result.status === 'attention').length
-  const pending = results.filter((result) => result.status === 'not-evaluated').length
-  const clear = results.filter((result) => result.status === 'clear').length
-  const context = { roomType, mobilityAids: project.household.mobilityAids }
+  const [filter, setFilter] = useState<CheckSummaryFilter>('all')
+  const summary = summarizeChecks(results)
+  const filteredResults = results.filter((result) => {
+    if (filter === 'all') return true
+    if (filter === 'attention') return result.status === 'attention'
+    if (filter === 'likelyAttention') return result.status === 'attention' && result.verdicts.some((verdict) => verdict.outcome === 'likely-does-not-meet')
+    if (filter === 'notEvaluated') return result.status === 'not-evaluated'
+    if (filter === 'clear') return result.status === 'clear'
+    return result.nearFall
+  })
+  const context = { roomType, mobilityAids: getResidentNeeds(project) }
+  const needPrompts = getNeedPrompts(project, layout)
+  const walkthroughSummary = getWalkthrough(project.checklist ?? [], roomType).summary
   return <section className="checks-panel" aria-labelledby="checks-panel-title">
     <header className="checks-heading">
       <h2 id="checks-panel-title">{t(locale, 'checksTitle')}</h2>
       <p>{locale === 'th' ? 'ผลตรวจจากข้อมูลในแผนผัง ไม่ใช่การรับรองความปลอดภัย' : 'Results describe entered plan geometry; they do not certify safety.'}</p>
-      <div className="checks-counts" aria-label={locale === 'th' ? 'สรุปผลตรวจ' : 'Check counts'}>
-        <span className="check-count-attention">{t(locale, 'checkAttention')}: {attention}</span>
-        <span>{t(locale, 'checkClear')}: {clear}</span>
-        <span>{t(locale, 'checkNotEvaluated')}: {pending}</span>
-      </div>
+      <CheckSummaryCounts summary={summary} locale={locale} filter={filter} onFilter={setFilter} />
+      <p className="walkthrough-count-line">{t(locale, 'walkthroughSummary')
+        .replace('{hazards}', String(walkthroughSummary.hazards))
+        .replace('{checked}', String(walkthroughSummary.getChecked))
+        .replace('{unanswered}', String(walkthroughSummary.notAnswered))}</p>
+      {hasProposed && <CheckAttentionComparison current={currentSummary} proposed={proposedSummary} locale={locale} />}
     </header>
+    {!!needPrompts.length && <section className="need-prompts" aria-labelledby="need-prompts-title">
+      <h3 id="need-prompts-title">{t(locale, 'needPromptHeading')}</h3>
+      <ul>{needPrompts.map((prompt) => <li key={prompt.id}>
+        <Button type="button" variant="outline" disabled={!editable && (prompt.focusTarget === 'walking-route' || prompt.focusTarget === 'turning-area')} onClick={() => onNeedPrompt(prompt)}>
+          {t(locale, prompt.messageKey)}
+        </Button>
+      </li>)}</ul>
+    </section>}
     <div className="check-result-list">
-      {sortCheckResults(results).map((result) => {
+      {filteredResults.length ? sortCheckResults(filteredResults).map((result) => {
         const fixes = onPreviewFix ? getFixesForResult(result, project) : []
-        return <article className={`check-result check-result-${result.status}`} key={result.id} data-testid="check-result" data-rule-id={result.ruleId} data-check-status={result.status} data-near-fall={result.nearFall}>
+        return <article className={`check-result check-result-${result.status}`} key={result.id} id={`check-result-${result.id}`} data-check-result-id={result.id} data-testid="check-result" data-rule-id={result.ruleId} data-check-status={result.status} data-near-fall={result.nearFall} data-relevant-needs={result.relevantNeeds?.join(',') ?? ''}>
           <div className="check-result-head">
             <span className="check-rule">{result.ruleId}</span>
             <strong>{t(locale, result.status === 'attention' ? 'checkAttention' : result.status === 'clear' ? 'checkClear' : 'checkNotEvaluated')}</strong>
             {result.nearFall && <span className="near-fall-chip"><span aria-hidden="true">▲</span> {t(locale, 'nearFall')}</span>}
+            {result.relevantNeeds?.map((need) => <span className="need-relevance-tag" key={need}>{t(locale, NEED_LABEL_KEYS[need])}</span>)}
           </div>
           <p>{t(locale, result.messageKey as MessageKey)}</p>
           <BenchmarkVerdicts verdicts={result.verdicts} locale={locale} context={context} />
@@ -99,7 +127,7 @@ export function ChecksPanel({ results, locale, project, roomType, onSelectEntiti
           <Button type="button" variant="outline" onClick={() => onSelectEntities(result)}>{t(locale, 'selectCheckLocation')}</Button>
           {onCreateRecommendation && result.status !== 'clear' && <Button type="button" variant="outline" onClick={() => onCreateRecommendation(result)}>{t(locale, 'addFromCheck')}</Button>}
         </article>
-      })}
+      }) : <p className="check-filter-empty">{t(locale, 'checkFilterEmpty')}</p>}
     </div>
     <footer className="checks-disclaimer"><p>{DISCLAIMER[locale]}</p></footer>
   </section>

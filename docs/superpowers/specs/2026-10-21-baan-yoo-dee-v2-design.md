@@ -46,7 +46,7 @@ Each release must be pilot-usable on its own. R1 must add value to the existing 
 
 - Thai default and a complete English alternative. Currency THB. Store integer millimetres and integer satang.
 - One validated Project document drives every view, check, history entry and export. Derived results are recomputed, never stored as authoritative facts.
-- Furniture is placed only in the 2D plan or numeric forms. Wall fixtures may also be edited in the wall elevation view, which is 2D. The 3D view is for inspection and selection only.
+- Floor furniture can be moved in the 2D plan, numeric forms, or by dragging in the 3D view. A 3D drag moves only floor furniture across the floor, snaps to 50 mm, and uses the same bounds validation and one-step history as the 2D plan; it does not rotate, resize, add, or delete items. The 2D plan and numeric forms remain the precise placement tools, and keyboard users can move items with the arrow keys in the 2D plan. Wall fixtures remain read-only in 3D and are edited in the 2D wall elevation.
 - **Benchmarks, never compliance.** The app compares a measurement with a cited benchmark value. Never use "compliant", "ถูกต้องตามกฎหมาย", "safe" or "accessible" as a verdict. The public-building regulation does not legally apply to private homes; every check and report must say so (§7.4).
 - Definite verdicts need verified inputs and a reviewed benchmark value (§7.3). Anything else is "likely". Missing data is "not evaluated", never "clear".
 - Every visible action works or explains why it is unavailable.
@@ -188,7 +188,8 @@ ResidentProfile = {
   reach: { posture: 'standing' | 'seated', low: Measurement, high: Measurement } | null,  // comfortable band, floor to hand
   strongerHand: 'left' | 'right' | 'both' | 'unknown',
   wheelchair: { width: Measurement, length: Measurement } | null,
-  falls: FallRecord[]               // max 20
+  falls: FallRecord[],              // max 20
+  needs?: ('cane' | 'walker' | 'wheelchair' | 'weak-grip' | 'difficulty-standing-up' | 'unsteady-balance')[]
 }
 FallRecord = { id, when: 'within-3-months' | '3-to-12-months', roomId: string | null,
                point: PointMm | null,   // room coordinates in the CURRENT layout
@@ -196,6 +197,7 @@ FallRecord = { id, when: 'within-3-months' | '3-to-12-months', roomId: string | 
 ```
 
 - `household.mobilityAids` (multi-select) stays in the brief.
+- `resident.needs` is an optional, language-independent set of presets. Older v2 files without it open with `[]`; the saved mobility-aid labels remain supported and are merged when checks are evaluated.
 - The resident profile adds body and fall data. The setup form explains that it is health information, stays on this device in R1, and is left out of the report unless the user includes it.
 - A fall whose room or point no longer exists keeps its record with the location cleared, like recommendation entity references in v1.
 
@@ -348,6 +350,8 @@ v1 rules G01–G05 stay, and run per room against room or floor geometry. M01 st
 
 **Fall proximity.** Results whose entities lie within 1000 mm of a recorded fall point in the same room, or whose room has a fall with no point, get `nearFall: true`. They sort first and show a marker. 1000 mm is a display parameter, not a safety claim.
 
+**Resident-need relevance.** Checks relevant to a selected need receive a text tag and sort after near-fall results but before the existing status order. Wheelchair maps to H02, H03, D01, D03, G04, G05 and B04; walker to D01, D03 and G04; cane to D03 and B05; weak grip to D02 and B03; difficulty standing up to B02 and B03; unsteady balance to B03, B05 and D03. Needs can also surface prompts for missing existing data. They do not add benchmark values, measurements, rules, or verdict changes.
+
 `CheckResult` adds:
 - `verdicts: BenchmarkVerdict[]` (empty for non-benchmark rules).
 - `basis: 'benchmark' | 'resident' | 'geometry' | 'manual'`.
@@ -370,7 +374,7 @@ Result IDs stay stable: `rule + layout + room + sorted entity IDs`.
   - Numeric fields in the inspector.
   - Invalid positions (outside the wall, overlapping an opening for switches and sockets) aren't committed, and the reason is shown.
 - Add a fixture from the Fixtures catalog onto the visible wall.
-- The plan shows fixtures as wall-attached symbols, and 3D shows simple meshes at their heights. Neither may move fixtures.
+- The plan shows fixtures as wall-attached symbols, and 3D shows simple meshes at their heights. Neither the plan nor 3D may move fixtures; use the wall elevation to add, move or edit them.
 
 ## 10. Fix library and price list
 

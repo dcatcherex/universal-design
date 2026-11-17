@@ -105,7 +105,7 @@ const recommendation = z.object({
   reason: text(4000), action: text(4000), priority: z.enum(['now', 'next', 'later']),
   workType: z.enum(['rearrange', 'purchase', 'building-work', 'site-review']), status: z.enum(['proposed', 'accepted', 'deferred', 'completed']),
   advisorNote: text(4000), materials: costRange.nullable(), labour: costRange.nullable(),
-  fixId: text(160).optional(), ruleId: ruleId.optional(),
+  fixId: text(160).optional(), ruleId: ruleId.optional(), findingQuestionId: text(160).optional(),
 })
 const resident = z.object({
   standingHeight: measureInRange(500, 2500).nullable(),
@@ -116,6 +116,7 @@ const resident = z.object({
     id, when: z.enum(['within-3-months', '3-to-12-months']), roomId: id.nullable(), point: point.nullable(),
     activity: z.enum(['toileting', 'bathing', 'transferring', 'walking', 'at-night', 'other']), note: text(500),
   })).max(20),
+  needs: z.array(z.enum(['cane', 'walker', 'wheelchair', 'weak-grip', 'difficulty-standing-up', 'unsteady-balance'])).max(6).default([]),
 })
 
 type ParsedLayout = z.infer<typeof layout>
@@ -204,8 +205,19 @@ export const projectSchema = z.object({
     benchmarkDatasetVersion: text(40).min(1),
   }).nullable(),
   report: z.object({ includeFallHistory: z.boolean() }).default({ includeFallHistory: false }),
+  checklist: z.array(z.object({
+    questionId: text(160).min(1),
+    answer: z.enum(['yes', 'no', 'unsure', 'not-applicable']),
+    note: text(1000),
+    answeredAt: isoDate,
+  })).max(500).default([]),
 }).superRefine((project, ctx) => {
   const issue: Issue = (path, message) => ctx.addIssue({ code: 'custom', path, message })
+  const checklistIds = new Set<string>()
+  project.checklist.forEach((answer, index) => {
+    if (checklistIds.has(answer.questionId)) issue(['checklist', index, 'questionId'], 'A checklist question can have only one saved answer')
+    checklistIds.add(answer.questionId)
+  })
   checkLayout(project.current, 'current', issue)
   if (project.proposed) checkLayout(project.proposed, 'proposed', issue)
 

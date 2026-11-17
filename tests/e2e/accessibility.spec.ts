@@ -1,13 +1,21 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
-async function expectAccessible(page: Page, name: string) {
-  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+async function expectAccessible(page: Page, name: string, selector?: string) {
+  const axe = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+  if (selector) axe.include(selector)
+  const results = await axe.analyze()
   if (results.violations.length) {
     await test.info().attach(`${name}-axe-violations.json`, { body: JSON.stringify(results.violations, null, 2), contentType: 'application/json' })
     for (const violation of results.violations) console.log(`${name} ${violation.id}: ${violation.nodes.map((node) => `${node.html} ${node.failureSummary?.replace(/\s+/g, ' ')}`).join(' | ')}`)
   }
   expect(results.violations.map(({ id, impact, nodes }) => ({ id, impact, nodes: nodes.map((node) => ({ html: node.html, summary: node.failureSummary })) })), `${name} accessibility violations`).toEqual([])
+}
+
+async function setWorkspaceLocale(page: Page, locale: 'th' | 'en') {
+  const button = page.locator('.app-header .header-actions > button').first()
+  const label = (await button.textContent())?.trim()
+  if ((locale === 'en' && label === 'EN') || (locale === 'th' && label !== 'EN')) await button.click()
 }
 
 test('passes axe checks on welcome, setup, editor, checks, recommendation and report states', async ({ page }) => {
@@ -29,6 +37,58 @@ test('passes axe checks on welcome, setup, editor, checks, recommendation and re
   await page.getByRole('button', { name: 'ส่งออก' }).click()
   await page.getByRole('menuitem', { name: 'ดูตัวอย่างรายงานสำหรับพิมพ์' }).click()
   await expectAccessible(page, 'Thai printable report')
+})
+
+test('passes axe checks on the interactive 3D view', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'เปิดตัวอย่างโครงการ' }).click()
+  await page.getByRole('button', { name: 'มุมมอง 3 มิติ' }).click()
+  await expect(page.getByTestId('room-scene-canvas')).toBeVisible()
+  const results = await new AxeBuilder({ page }).include('.scene-panel').analyze()
+  expect(results.violations).toEqual([])
+})
+
+test('scans bathroom checks, resident, wall, fix preview and report with axe in both locales', async ({ page }) => {
+  test.setTimeout(180000)
+  await page.addInitScript(() => localStorage.clear())
+  for (const locale of ['th', 'en'] as const) {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    await page.locator('.welcome-actions > button').nth(2).click()
+    await setWorkspaceLocale(page, locale)
+
+    const tabs = page.locator('.inspector-sidebar [role="tab"]')
+    await tabs.nth(2).click()
+    await expectAccessible(page, `${locale} bathroom checks`, '.checks-panel')
+    await tabs.nth(4).click()
+    await expectAccessible(page, `${locale} resident panel`, '.resident-panel')
+
+    await page.locator('.editor-toolbar').getByRole('button', { name: locale === 'th' ? 'มุมมองผนัง' : 'Wall view', exact: true }).click()
+    await expectAccessible(page, `${locale} wall view`, '.canvas-column')
+    await tabs.nth(2).click()
+    await page.locator('[data-rule-id="B01"] [data-fix-id="door-rehang-out"]').click()
+    await expectAccessible(page, `${locale} fix preview`, '[data-testid="fix-preview"]')
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: locale === 'th' ? 'ส่งออก' : 'Export' }).click()
+    await page.getByRole('menuitem', { name: locale === 'th' ? 'ดูตัวอย่างรายงานสำหรับพิมพ์' : 'Preview printable report' }).click()
+    await expectAccessible(page, `${locale} R1 report`, '[role="dialog"]')
+  }
+})
+
+test('bathroom example has no horizontal overflow at mobile, tablet and desktop widths in both locales', async ({ page }) => {
+  test.setTimeout(90000)
+  await page.addInitScript(() => localStorage.clear())
+  for (const locale of ['th', 'en'] as const) {
+    for (const width of [390, 768, 1440]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : width === 768 ? 1024 : 900 })
+      await page.goto('/')
+      await page.locator('.welcome-actions > button').nth(2).click()
+      await setWorkspaceLocale(page, locale)
+      await expect(page.locator('.workspace-grid')).toBeVisible()
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    }
+  }
 })
 
 test('keeps Thai and English welcome/editor layouts within narrow, tablet and desktop viewports', async ({ page }) => {
