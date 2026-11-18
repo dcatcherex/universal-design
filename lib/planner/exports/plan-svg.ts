@@ -1,6 +1,6 @@
 import { buildPlanScene, type PlanScenePrimitive } from '../plan-scene'
 import { PLAN_PALETTE } from '../plan-palette'
-import type { EntityCheckStatus } from '../checks'
+import type { EntityCheckStatus, LayoutCheckView } from '../checks'
 import { t } from '../i18n'
 import type { Layout, Locale, PointMm } from '../types'
 
@@ -32,7 +32,7 @@ function checkBadge(status: EntityCheckStatus | undefined, entityId: string, poi
 
 export function createPlanSvg(layout: Layout, options: {
   locale: Locale; layoutLabel: string; showOverlays: boolean; showDimensions?: boolean; showCheckMarks?: boolean
-  checkStatuses?: ReadonlyMap<string, EntityCheckStatus>; roomCheckResults?: import('../types').CheckResult[]; selectedItemId?: string | null
+  checkView?: LayoutCheckView; selectedItemId?: string | null
 }): string {
   const scene = buildPlanScene(layout, options)
   const { widthMm: width, depthMm: depth, scale } = scene
@@ -106,7 +106,7 @@ export function createPlanSvg(layout: Layout, options: {
         ? `<circle cx="${center.xMm}" cy="${center.yMm}" r="${geometry.checkRadiusMm.export}" fill="none" stroke="${checkStatus.status === 'attention' ? '#8e2f21' : '#175d91'}" stroke-width="${checkStatus.status === 'attention' ? 32 * scale : 26 * scale}"${checkStatus.status === 'not-evaluated' ? ` stroke-dasharray="${9 * scale} ${6 * scale}"` : ''} vector-effect="non-scaling-stroke"/>`
         : ''
       const check = outline + checkBadge(checkStatus, entity.id, badge.export, entity.label, options.locale, scene.badgeSizeMm)
-      return `<g data-overlay-id="${escapeXml(entity.id)}" data-entity-check-status="${checkStatus?.status ?? ''}">${check}<circle cx="${center.xMm}" cy="${center.yMm}" r="${radius}" fill="${hasDiameter.export ? '#75988022' : 'none'}" stroke="${PLAN_PALETTE.turning}" stroke-width="${24 * scale}" stroke-dasharray="${90 * scale} ${48 * scale}"/><title>${escapeXml(entity.label)} · ${hasDiameter.export ? `${radius * 2} mm` : (options.locale === 'th' ? 'à¹„à¸¡à¹ˆà¸£à¸°à¸šà¸¸à¹€à¸ªà¹‰à¸™à¸œà¹ˆà¸²à¸™à¸¨à¸¹à¸™à¸¢à¹Œà¸à¸¥à¸²à¸‡' : 'Diameter not set')}</title></g>`
+      return `<g data-overlay-id="${escapeXml(entity.id)}" data-entity-check-status="${checkStatus?.status ?? ''}">${check}<circle cx="${center.xMm}" cy="${center.yMm}" r="${radius}" fill="${hasDiameter.export ? '#75988022' : 'none'}" stroke="${PLAN_PALETTE.turning}" stroke-width="${24 * scale}" stroke-dasharray="${90 * scale} ${48 * scale}"/><title>${escapeXml(entity.label)} · ${hasDiameter.export ? `${radius * 2} mm` : (t(options.locale, 'diameterNotSet'))}</title></g>`
     }),
   ].join('')
   const dimensionLabel = `${(width / 1000).toFixed(2)} × ${(depth / 1000).toFixed(2)} m`

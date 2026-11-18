@@ -2,17 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent } from 'react'
 import { Button } from '@/components/ui/button'
-import { getFootprint } from '@/lib/planner/geometry'
-import { isFurnitureWithinRoom, moveFurnitureInLayout, snapToGridMm } from '@/lib/planner/furniture-movement'
+import { isFurnitureWithinRoom, moveEntity, snapToGridMm } from '@/lib/planner/entity-movement'
 import { getPrimaryFloor, getPrimaryRoom } from '@/lib/planner/layout-access'
 import { buildPlanScene, type PlanScenePrimitive, type PlanSymbolMark } from '@/lib/planner/plan-scene'
 import { PLAN_PALETTE } from '@/lib/planner/plan-palette'
-import { getEntityStatuses, type EntityCheckStatus } from '@/lib/planner/checks'
-import type { CheckResult, FallRecord, FurnitureItem, Layout, LayoutId, Locale, PointMm, Project, Wall } from '@/lib/planner/types'
+import { checkViewFromResults, type LayoutCheckView } from '@/lib/planner/checks'
+import type { FallRecord, FurnitureItem, Layout, LayoutId, Locale, PointMm, Project, Wall } from '@/lib/planner/types'
 import { t, type MessageKey } from '@/lib/planner/i18n'
 import { PlanSchedule } from './plan-schedule'
 import { CheckMarkBadge } from './check-mark-badge'
-import { useMoveCheckPreview } from './use-move-check-preview'
+import { useEntityDrag } from './use-entity-drag'
 
 type Placement = { catalogId: string; label: string; widthMm: number; depthMm: number; heightMm: number; finish: FurnitureItem['finish']; obstruction: FurnitureItem['obstruction'] }
 type OverlayTool = 'route' | 'turning' | null
@@ -26,10 +25,9 @@ type Props = {
   pickingFall?: boolean
   /** Entities to outline, e.g. what a fix preview would change. */
   highlightIds?: readonly string[]
-  checkStatuses: ReadonlyMap<string, EntityCheckStatus>
-  roomCheckResults: CheckResult[]
+  checkView: LayoutCheckView
   showCheckMarks: boolean
-  project: Project; layoutId: LayoutId; checkResults: CheckResult[]
+  project: Project; layoutId: LayoutId
   onToggleCheckMarks(show: boolean): void
   onSelectCheckResult(resultId: string): void
   onSelect(id: string | null): void; onCommitLayout(layout: Layout): void; onPlace(center: { xMm: number; yMm: number }): void; onCancelPlacement(): void
@@ -38,7 +36,6 @@ type Props = {
   /** Clicking a wall line picks that wall, e.g. to open its elevation. */
   onSelectWall?(wall: Wall): void
 }
-type Preview = { id: string; xMm: number; yMm: number }
 type ItemPrimitive = Extract<PlanScenePrimitive, { kind: 'item' }>
 
 function SymbolMarks({ marks }: { marks: PlanSymbolMark[] }) {
@@ -80,37 +77,59 @@ function FurnitureShape({ primitive, highlighted, scale, onPointerDown, onKeyDow
   </>
 }
 
-export function PlanCanvas({ layout, locale, selectionId, showDimensions, onToggleDimensions, routeTargetMm, turningTargetMm, placement, overlayTool = null, falls = [], pickingFall = false, highlightIds = [], checkStatuses: baseCheckStatuses, roomCheckResults: baseRoomCheckResults, showCheckMarks, project, layoutId, checkResults, onToggleCheckMarks, onSelectCheckResult, onSelect, onCommitLayout, onPlace, onCancelPlacement, onPlaceRoute, onPlaceTurning, onCancelOverlay, onPickFall, onCancelPickFall, onSelectWall }: Props) {
+export function PlanCanvas({ layout, locale, selectionId, showDimensions, onToggleDimensions, routeTargetMm, turningTargetMm, placement, overlayTool = null, falls = [], pickingFall = false, highlightIds = [], checkView: baseCheckView, showCheckMarks, project, layoutId, onToggleCheckMarks, onSelectCheckResult, onSelect, onCommitLayout, onPlace, onCancelPlacement, onPlaceRoute, onPlaceTurning, onCancelOverlay, onPickFall, onCancelPickFall, onSelectWall }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{ id: string; xMm: number; yMm: number } | null>(null)
-  const keyboardMoveRef = useRef<{ id: string; xMm: number; yMm: number } | null>(null)
-  const [preview, setPreview] = useState<Preview | null>(null)
-  const moveFeedback = useMoveCheckPreview(project, layoutId, checkResults, locale)
-  const clearMoveFeedback = moveFeedback.clear
+  const [placementPreview, setPlacementPreview] = useState<PointMm | null>(null)
   const [overlayCursor, setOverlayCursor] = useState<PointMm | null>(null)
   const [routeDraft, setRouteDraft] = useState<{ tool: OverlayTool; points: PointMm[] }>({ tool: null, points: [] })
   const [message, setMessage] = useState('')
   const room = getPrimaryRoom(layout)
   const floor = getPrimaryFloor(layout)
   const width = room.shape.width.valueMm, depth = room.shape.depth.valueMm
-  const activeResults = moveFeedback.preview?.results ?? checkResults
-  const checkStatuses = useMemo(() => moveFeedback.preview ? getEntityStatuses(activeResults) : baseCheckStatuses, [activeResults, baseCheckStatuses, moveFeedback.preview])
-  const roomCheckResults = moveFeedback.preview ? activeResults.filter((result) => result.entityIds.length === 0) : baseRoomCheckResults
-  const roomAttentionResults = roomCheckResults.filter((result) => result.status === 'attention')
-  const roomPendingResults = roomCheckResults.filter((result) => result.status === 'not-evaluated')
-  const previewItem = preview && preview.id !== '__placement__' ? room.items.find((item) => item.id === preview.id) : undefined
-  const previewOutside = !!(previewItem && preview && outsideRoom({ ...previewItem, center: { xMm: preview.xMm, yMm: preview.yMm } }))
+  const drag = useEntityDrag<FurnitureItem, PointMm>({
+    project, layoutId, checkResults: baseCheckView.results, locale,
+    stageRef,
+    editable: true,
+    canStartDrag: () => !(pickingFall || placement || overlayTool),
+    selectOnStart: false,
+    keyboard: 'preview-then-commit',
+    modelPoint,
+    positionOf: (item) => item.center,
+    positionFromDrag: (_item, _start, current) => ({ xMm: snapToGridMm(current.xMm), yMm: snapToGridMm(current.yMm) }),
+    stepped: (position, dx, dy) => ({ xMm: position.xMm + dx, yMm: position.yMm - dy }),
+    allowStep: (item, position) => isFurnitureWithinRoom(layout, { ...item, center: position }),
+    chipPointFor: (position) => modelChipPoint(position),
+    getEntity: (id) => room.items.find((item) => item.id === id),
+    entityId: (item) => item.id,
+    commit: (item, center) => {
+      const moved = { ...item, center }
+      if (!isFurnitureWithinRoom(layout, moved)) { setMessage(t(locale, 'outOfBounds')); return }
+      const result = moveEntity(layout, moved.id, moved.center)
+      if (!result.ok) { setMessage(t(locale, 'outOfBounds')); return }
+      onCommitLayout(result.layout)
+      setMessage('')
+    },
+    onSelect,
+    onDragStart: () => setMessage(''),
+    onDragCancel: () => setMessage(''),
+  })
+  const moveFeedback = drag.moveFeedback
+  const checkView = useMemo(() => moveFeedback.preview ? checkViewFromResults(moveFeedback.preview.results) : baseCheckView, [baseCheckView, moveFeedback.preview])
+  const roomAttentionResults = checkView.roomLevel.filter((result) => result.status === 'attention')
+  const roomPendingResults = checkView.roomLevel.filter((result) => result.status === 'not-evaluated')
+  const previewPosition = drag.preview?.position ?? null
+  const previewItem = drag.preview ? room.items.find((item) => item.id === drag.preview!.id) : undefined
+  const previewOutside = !!(previewItem && previewPosition && !isFurnitureWithinRoom(layout, { ...previewItem, center: previewPosition }))
   const scene = buildPlanScene(layout, {
     locale,
     showOverlays: true,
     showDimensions,
     showCheckMarks,
-    checkStatuses,
-    roomCheckResults,
+    checkView,
     selectedItemId: selectionId,
     selectedEntityId: selectionId,
-    movePreview: preview && preview.id !== '__placement__' ? preview : null,
+    movePreview: drag.preview && previewPosition ? { id: drag.preview.id, ...previewPosition } : null,
     routeTargetMm,
     turningTargetMm,
   })
@@ -131,18 +150,8 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
 
   useEffect(() => {
     const onEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape' || !(dragRef.current || keyboardMoveRef.current || placement || overlayTool || pickingFall)) return
-      if (dragRef.current) {
-        dragRef.current = null
-        setPreview(null)
-        clearMoveFeedback()
-        setMessage('')
-      }
-      if (keyboardMoveRef.current) {
-        keyboardMoveRef.current = null
-        setPreview(null)
-        clearMoveFeedback()
-      }
+      if (event.key !== 'Escape' || !(placement || overlayTool || pickingFall)) return
+      setPlacementPreview(null)
       if (placement) onCancelPlacement()
       if (pickingFall) onCancelPickFall?.()
       if (overlayTool) {
@@ -153,7 +162,7 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
     }
     window.addEventListener('keydown', onEscape)
     return () => window.removeEventListener('keydown', onEscape)
-  }, [placement, overlayTool, pickingFall, onCancelPlacement, onCancelOverlay, onCancelPickFall, clearMoveFeedback])
+  }, [placement, overlayTool, pickingFall, onCancelPlacement, onCancelOverlay, onCancelPickFall])
 
   function chipPoint(clientX: number, clientY: number) {
     const rect = stageRef.current?.getBoundingClientRect()
@@ -182,97 +191,14 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
   }
   const clampToRoom = (point: PointMm): PointMm => ({ xMm: Math.min(width, Math.max(0, snap(point.xMm))), yMm: Math.min(depth, Math.max(0, snap(point.yMm))) })
 
-  function onItemPointerDown(event: ReactPointerEvent<SVGGElement>, item: FurnitureItem) {
-    if (pickingFall || placement || overlayTool) return
-    event.stopPropagation()
-    keyboardMoveRef.current = null
-    setMessage('')
-    dragRef.current = { id: item.id, xMm: item.center.xMm, yMm: item.center.yMm }
-    ;(event.currentTarget as SVGGElement).setPointerCapture(event.pointerId)
-    setPreview({ id: item.id, xMm: item.center.xMm, yMm: item.center.yMm })
-    const chip = chipPoint(event.clientX, event.clientY)
-    moveFeedback.begin(item.id, item.center, chip.left, chip.top)
-  }
-
-  function findItem(id: string) { return room.items.find((item) => item.id === id) }
-  function commitMovedItem(moved: FurnitureItem): boolean {
-    const result = moveFurnitureInLayout(layout, moved.id, moved.center)
-    if (!result.ok) return false
-    onCommitLayout(result.layout)
-    return true
-  }
-  function outsideRoom(item: FurnitureItem) {
-    return !isFurnitureWithinRoom(layout, item)
-  }
-
   function onPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     if (overlayTool) { setOverlayCursor(clampToRoom(modelPoint(event))); return }
     if (placement) {
       const point = modelPoint(event)
-      setPreview({ id: '__placement__', xMm: snap(point.xMm), yMm: snap(point.yMm) })
+      setPlacementPreview({ xMm: snap(point.xMm), yMm: snap(point.yMm) })
       return
     }
-    if (!dragRef.current) return
-    const point = modelPoint(event)
-    const item = findItem(dragRef.current.id)
-    if (!item) return
-    const xMm = snap(point.xMm)
-    const yMm = snap(point.yMm)
-    dragRef.current = { ...dragRef.current, xMm, yMm }
-    setPreview({ id: item.id, xMm, yMm })
-    const chip = chipPoint(event.clientX, event.clientY)
-    moveFeedback.schedule(item.id, { xMm, yMm }, chip.left, chip.top)
-  }
-
-  function onPointerUp() {
-    if (!dragRef.current) return
-    const dropped = dragRef.current
-    const item = findItem(dragRef.current.id)
-    dragRef.current = null
-    setPreview(null)
-    moveFeedback.clear()
-    if (!item) return
-    onSelect(item.id)
-    const moved = { ...item, center: { xMm: dropped.xMm, yMm: dropped.yMm } }
-    if (outsideRoom(moved)) {
-      setMessage(t(locale, 'outOfBounds'))
-      return
-    }
-    if (!commitMovedItem(moved)) {
-      setMessage(t(locale, 'outOfBounds'))
-      return
-    }
-    setMessage('')
-  }
-
-  function keyboardMove(event: KeyboardEvent<SVGGElement>, item: FurnitureItem) {
-    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
-    event.preventDefault()
-    const delta = event.shiftKey ? 50 : 10
-    const dx = event.key === 'ArrowLeft' ? -delta : event.key === 'ArrowRight' ? delta : 0
-    const dy = event.key === 'ArrowUp' ? -delta : event.key === 'ArrowDown' ? delta : 0
-    const current = keyboardMoveRef.current?.id === item.id ? keyboardMoveRef.current : item.center
-    const center = { xMm: current.xMm + dx, yMm: current.yMm + dy }
-    const moved = { ...item, center }
-    if (outsideRoom(moved)) return
-    if (keyboardMoveRef.current?.id !== item.id) {
-      const chip = modelChipPoint(current)
-      moveFeedback.begin(item.id, item.center, chip.left, chip.top)
-    }
-    keyboardMoveRef.current = { id: item.id, ...center }
-    setPreview({ id: item.id, ...center })
-    const chip = modelChipPoint(center)
-    moveFeedback.schedule(item.id, center, chip.left, chip.top)
-  }
-
-  function keyboardMoveEnd(event: KeyboardEvent<SVGGElement>, item: FurnitureItem) {
-    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
-    const pending = keyboardMoveRef.current
-    if (!pending || pending.id !== item.id) return
-    keyboardMoveRef.current = null
-    setPreview(null)
-    moveFeedback.clear()
-    commitMovedItem({ ...item, center: { xMm: pending.xMm, yMm: pending.yMm } })
+    drag.onSurfacePointerMove(event)
   }
 
   const openingGaps = openingPrimitives.map((primitive) => {
@@ -304,7 +230,7 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
       </div>
     </div>
     <div className="canvas-stage" ref={stageRef}>
-      <svg ref={svgRef} style={style} role="group" aria-label={`${t(locale, 'roomPlan')} ${(width / 1000).toFixed(1)} × ${(depth / 1000).toFixed(1)} m`} viewBox={`${scene.viewBox.x} ${scene.viewBox.y} ${scene.viewBox.width} ${scene.viewBox.height}`} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onClick={(event) => {
+      <svg ref={svgRef} style={style} role="group" aria-label={`${t(locale, 'roomPlan')} ${(width / 1000).toFixed(1)} × ${(depth / 1000).toFixed(1)} m`} viewBox={`${scene.viewBox.x} ${scene.viewBox.y} ${scene.viewBox.width} ${scene.viewBox.height}`} onPointerMove={onPointerMove} onPointerUp={drag.onSurfacePointerUp} onPointerCancel={drag.onSurfacePointerUp} onClick={(event) => {
         if (pickingFall) {
           event.stopPropagation()
           const point = modelPoint(event)
@@ -315,11 +241,11 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
           event.stopPropagation()
           const point = modelPoint(event)
           const center = { xMm: snap(point.xMm), yMm: snap(point.yMm) }
-          const footprint = getFootprint({ id: 'preview', catalogId: placement.catalogId, label: placement.label, center, width: { valueMm: placement.widthMm, confidence: 'estimated' }, depth: { valueMm: placement.depthMm, confidence: 'estimated' }, height: { valueMm: placement.heightMm, confidence: 'estimated' }, rotationDeg: 0, finish: placement.finish, obstruction: placement.obstruction })
-          if (footprint.minX < 0 || footprint.minY < 0 || footprint.maxX > width || footprint.maxY > depth) { setMessage(t(locale, 'outOfBounds')); return }
+          const candidate: FurnitureItem = { id: 'preview', catalogId: placement.catalogId, label: placement.label, center, width: { valueMm: placement.widthMm, confidence: 'estimated' }, depth: { valueMm: placement.depthMm, confidence: 'estimated' }, height: { valueMm: placement.heightMm, confidence: 'estimated' }, rotationDeg: 0, finish: placement.finish, obstruction: placement.obstruction }
+          if (!isFurnitureWithinRoom(layout, candidate)) { setMessage(t(locale, 'outOfBounds')); return }
           setMessage('')
           onPlace(center)
-          setPreview(null)
+          setPlacementPreview(null)
           return
         }
         if (overlayTool) {
@@ -333,7 +259,7 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
           }
           return
         }
-        if (!dragRef.current && event.target === event.currentTarget) onSelect(null)
+        if (!drag.isDragging() && event.target === event.currentTarget) onSelect(null)
       }}>
         <defs><pattern id="room-grid" width="500" height="500" patternUnits="userSpaceOnUse"><path d="M 500 0 L 0 0 0 500" fill="none" stroke="#d9e1d5" strokeWidth={8 * scale} /></pattern><pattern id="plan-wet-zone-hatch" width="160" height="160" patternUnits="userSpaceOnUse"><rect width="160" height="160" fill="#e8f0f3" /><path d="M -40 40 L40 -40 M0 160 L160 0 M120 200 L200 120" fill="none" stroke={PLAN_PALETTE.wet} strokeWidth={18 * scale} /></pattern><filter id="item-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy={24 * scale} stdDeviation={18 * scale} floodColor="#21382d" floodOpacity=".12" /></filter></defs>
         {wallPrimitives.map((primitive, index) => <rect key={index} className="plan-wall" {...primitive.geometry} />)}
@@ -388,7 +314,7 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
         {overlayTool === 'route' && routeDraft.tool === 'route' && routeDraft.points.length > 0 && <polyline className="overlay-draft-route" points={[...routeDraft.points, ...(overlayCursor ? [overlayCursor] : [])].map((point) => `${point.xMm},${point.yMm}`).join(' ')} />}
         {overlayTool === 'route' && routeDraft.tool === 'route' && routeDraft.points.map((point, index) => <circle key={index} className="overlay-draft-point" cx={point.xMm} cy={point.yMm} r={55 * scale}><title>{`${t(locale, 'routePoint')} ${index + 1}`}</title></circle>)}
         {overlayTool === 'turning' && overlayCursor && <circle className="overlay-draft-turning" cx={overlayCursor.xMm} cy={overlayCursor.yMm} r="500" />}
-        {itemPrimitives.map((primitive) => <FurnitureShape key={primitive.entity.id} primitive={primitive} scale={scale} highlighted={highlightIds.includes(primitive.entity.id)} onPointerDown={onItemPointerDown} onKeyDown={keyboardMove} onKeyUp={keyboardMoveEnd} locale={locale} onSelectCheckResult={onSelectCheckResult} />)}
+        {itemPrimitives.map((primitive) => <FurnitureShape key={primitive.entity.id} primitive={primitive} scale={scale} highlighted={highlightIds.includes(primitive.entity.id)} onPointerDown={drag.onEntityPointerDown} onKeyDown={drag.onEntityKeyDown} onKeyUp={drag.onEntityKeyUp} locale={locale} onSelectCheckResult={onSelectCheckResult} />)}
         <g className="plan-room-annotation" data-plan-annotation="room-label" data-label-x-mm={annotations.roomLabel.point.xMm} data-label-y-mm={annotations.roomLabel.point.yMm} role="img" aria-label={`${annotations.roomLabel.typeLabel}, ${annotations.roomLabel.areaLabel}`} pointerEvents="none">
           <text className="plan-room-label-type" x={annotations.roomLabel.point.xMm} y={annotations.roomLabel.typeY} textAnchor="middle" dominantBaseline="central">{annotations.roomLabel.typeLabel}</text>
           <text className="plan-room-label-area" x={annotations.roomLabel.point.xMm} y={annotations.roomLabel.areaY} textAnchor="middle" dominantBaseline="central">{annotations.roomLabel.areaLabel}</text>
@@ -420,13 +346,13 @@ export function PlanCanvas({ layout, locale, selectionId, showDimensions, onTogg
             <text x={xMm} y={yMm + size * 0.12} textAnchor="middle" dominantBaseline="central">!</text>
           </g>
         })}
-        {placement && preview?.id === '__placement__' && <g className="placement-preview" transform={`translate(${preview.xMm} ${preview.yMm})`} pointerEvents="none"><rect x={-placement.widthMm / 2} y={-placement.depthMm / 2} width={placement.widthMm} height={placement.depthMm} rx={70 * scale} /><text textAnchor="middle" dominantBaseline="central">{placement.label}</text></g>}
+        {placement && placementPreview && <g className="placement-preview" transform={`translate(${placementPreview.xMm} ${placementPreview.yMm})`} pointerEvents="none"><rect x={-placement.widthMm / 2} y={-placement.depthMm / 2} width={placement.widthMm} height={placement.depthMm} rx={70 * scale} /><text textAnchor="middle" dominantBaseline="central">{placement.label}</text></g>}
       </svg>
       {message && <p role="alert" className="canvas-alert">{message}</p>}
       {moveFeedback.preview && !message && !previewOutside && <div className="move-check-chip" data-testid="move-check-chip" style={{ left: moveFeedback.preview.left, top: moveFeedback.preview.top }} aria-hidden="true">{moveFeedback.preview.attention.length ? `${moveFeedback.preview.attention.length} ${t(locale, moveFeedback.preview.attention.length === 1 ? 'moveNeedsAttentionOne' : 'moveNeedsAttentionMany')}: ${t(locale, moveFeedback.preview.attention[0].messageKey as MessageKey)}` : t(locale, 'moveNoAttention')}</div>}
       <span className="sr-only" data-testid="move-check-live" aria-live="polite">{moveFeedback.announcement}</span>
     </div>
     <PlanSchedule room={room} schedule={schedule} locale={locale} selectionId={selectionId} onSelect={onSelect} />
-    <div className="canvas-legend"><span><i className="legend-furniture" />{locale === 'th' ? 'สิ่งของ' : 'Furniture'}</span><span><i className="legend-route" />{locale === 'th' ? 'แนวทางเดินตัวอย่าง' : 'Illustrative movement corridor'}</span>{floor.turningAreas.length > 0 && <span><i className="legend-turning" />{t(locale, 'turningOverlay')}</span>}{room.fixtures.length > 0 && <span><i className="legend-fixture" />{t(locale, 'fixtures')}</span>}{room.wetZones.length > 0 && <span><i className="legend-wet" />{t(locale, 'wetZone')}</span>}{falls.some((fall) => fall.point) && <span><i className="legend-fall" />{t(locale, 'fallMarker')}</span>}{showCheckMarks && <><span><i className="legend-check-marker legend-check-attention">!</i>{t(locale, 'checkMarkerLegendAttention')}</span><span><i className="legend-check-marker legend-check-not-evaluated">?</i>{t(locale, 'checkMarkerLegendNotEvaluated')}</span></>}<span>{locale === 'th' ? 'กดปุ่มลูกศรเพื่อขยับ 10 มม. · Shift + ลูกศร 50 มม.' : 'Arrow keys move 10 mm · Shift + arrow moves 50 mm'}</span></div>
+    <div className="canvas-legend"><span><i className="legend-furniture" />{t(locale, 'legendFurniture')}</span><span><i className="legend-route" />{t(locale, 'legendRouteCorridor')}</span>{floor.turningAreas.length > 0 && <span><i className="legend-turning" />{t(locale, 'turningOverlay')}</span>}{room.fixtures.length > 0 && <span><i className="legend-fixture" />{t(locale, 'fixtures')}</span>}{room.wetZones.length > 0 && <span><i className="legend-wet" />{t(locale, 'wetZone')}</span>}{falls.some((fall) => fall.point) && <span><i className="legend-fall" />{t(locale, 'fallMarker')}</span>}{showCheckMarks && <><span><i className="legend-check-marker legend-check-attention">!</i>{t(locale, 'checkMarkerLegendAttention')}</span><span><i className="legend-check-marker legend-check-not-evaluated">?</i>{t(locale, 'checkMarkerLegendNotEvaluated')}</span></>}<span>{t(locale, 'arrowMoveHint')}</span></div>
   </div>
 }

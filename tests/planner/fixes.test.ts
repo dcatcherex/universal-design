@@ -10,6 +10,7 @@ import { createFixture, FIXTURE_CATALOG } from '../../lib/planner/fixtures-catal
 import { fixtureFitsWall, getFixtureSpan } from '../../lib/planner/geometry'
 import { commitCommand, createHistory, getReviewStatus, undo } from '../../lib/planner/history'
 import { getPrimaryRoom } from '../../lib/planner/layout-access'
+import { benchmarkContextFor } from '../../lib/planner/resident-needs'
 import { buildFixtureMesh, buildFurnitureMesh } from '../../lib/planner/scene/build-scene'
 import { validateProject } from '../../lib/planner/schema'
 import { FIXES, getFixesForResult, previewFix } from '../../lib/planner/standards/fixes'
@@ -77,6 +78,16 @@ describe('fix library', () => {
     expect(bar).toMatchObject({ kind: 'grab-bar-fold-down', wall: 'south' })
     expect(bar.offset.valueMm).toBe(1300 - 180)
     expect(preview.value.newResults.find((entry) => entry.ruleId === 'B03')?.status).toBe('clear')
+  })
+
+  it.each([0, 90, 180, 270] as const)('places a grab bar the check finds when the toilet faces %d degrees', (rotationDeg) => {
+    const project = bathroom()
+    const toilet = getPrimaryRoom(project.current).items.find((item) => item.id === 'toilet-1')!
+    toilet.rotationDeg = rotationDeg
+    const preview = previewFix(project, 'grab-bar-horizontal', { entityId: 'toilet-1', ruleId: 'B03' }, now)
+    if (!preview.ok) throw new Error(preview.error.code)
+    const bar = getPrimaryRoom(preview.value.project.proposed!).fixtures[0]
+    expect(result(preview.value.project, 'B03', 'proposed').entityIds).toContain(bar.id)
   })
 
   it('needs a position to move an item and rejects one outside the room', () => {
@@ -245,7 +256,7 @@ describe('fixture geometry, wall view and 3D', () => {
     const space = getPrimaryRoom(project.current)
     const bar = createFixture('grab-bar-horizontal', 'east', space, 'bar', 'Bar', { offset: 1100, referenceHeight: 680 })
     space.fixtures = [bar]
-    const context = { roomType: 'bathroom' as const, mobilityAids: [] }
+    const context = benchmarkContextFor(project, space)
     const east = buildElevation(space, 'east', project.resident, 'bar', context)
     // The east wall runs north to south: 1800 mm long. The toilet (300 mm away) shows; the jar does not.
     expect(east.lengthMm).toBe(1800)

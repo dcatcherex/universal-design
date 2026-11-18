@@ -2,7 +2,7 @@
 
 import { buildPlanSchedule, type PlanSchedule as PlanScheduleModel } from '@/lib/planner/plan-schedule'
 import type { Locale, RoomSpace } from '@/lib/planner/types'
-import { t } from '@/lib/planner/i18n'
+import { confidenceLabel, t } from '@/lib/planner/i18n'
 
 export function PlanSchedule({ room, schedule: providedSchedule, locale, selectionId, onSelect }: {
   room: RoomSpace
@@ -40,8 +40,7 @@ export function PlanSchedule({ room, schedule: providedSchedule, locale, selecti
       <h4>{t(locale, 'fixtures')}</h4>
       <ul>{schedule.fixtures.map((fixture) => {
         const selected = selectionId === fixture.id
-        const confidenceKey = fixture.confidence === 'advisor-verified' ? 'confidenceVerified' : fixture.confidence === 'measured' ? 'measured' : 'estimated'
-        const details = `${wallLabel(fixture.wall)} · ${t(locale, 'fixtureHeightAboveFloor')}: ${fixture.heightLabel} · ${t(locale, confidenceKey)}`
+        const details = `${wallLabel(fixture.wall)} · ${t(locale, 'fixtureHeightAboveFloor')}: ${fixture.heightLabel} · ${confidenceLabel(locale, fixture.confidence)}`
         return <li key={fixture.id} data-schedule-fixture-id={fixture.id}>
           {onSelect
             ? <button type="button" className="fixture-schedule-row" aria-pressed={selected} onClick={() => onSelect(fixture.id)}><strong>{fixture.label}</strong><span>{details}</span></button>

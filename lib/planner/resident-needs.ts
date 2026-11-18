@@ -1,8 +1,8 @@
 import { getPrimaryFloor, getPrimaryRoom } from './layout-access'
-import { canonicalMobilityAids } from './standards/benchmarks'
+import { canonicalMobilityAids, type BenchmarkContext } from './standards/benchmarks'
 import { isToilet } from './catalog'
 import type { MessageKey } from './i18n'
-import type { Layout, Project, ResidentNeed, RuleId } from './types'
+import type { Layout, Project, ResidentNeed, RoomSpace, RuleId } from './types'
 
 export const RESIDENT_NEEDS: readonly ResidentNeed[] = [
   'cane', 'walker', 'wheelchair', 'weak-grip', 'difficulty-standing-up', 'unsteady-balance',
@@ -41,6 +41,11 @@ export function getResidentNeeds(project: Project): ResidentNeed[] {
     if (aid === 'cane' || aid === 'walker' || aid === 'wheelchair') needs.add(aid)
   }
   return RESIDENT_NEEDS.filter((need) => needs.has(need))
+}
+
+/** The single context every benchmark lookup derives from: room type plus the merged resident needs. */
+export function benchmarkContextFor(project: Project, room: RoomSpace): BenchmarkContext {
+  return { roomType: room.type, mobilityAids: getResidentNeeds(project) }
 }
 
 export function getRelevantNeedsForRule(ruleId: RuleId, needs: readonly ResidentNeed[]): ResidentNeed[] {

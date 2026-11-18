@@ -1,14 +1,17 @@
 import { evaluateLayout, sortCheckResults } from '../checks'
+import { t } from '../i18n'
 import { getReviewStatus } from '../history'
+import { getPrimaryRoom } from '../layout-access'
 import { summarizeCosts } from '../recommendations'
-import { BENCHMARKS, type BenchmarkSource } from '../standards/benchmarks'
+import { benchmarkContextFor } from '../resident-needs'
+import { BENCHMARKS, type BenchmarkContext, type BenchmarkSource } from '../standards/benchmarks'
 import { getProvince } from '../standards/provinces'
 import { CHECKLIST, getWalkthrough, type WalkthroughEntry, type WalkthroughFinding, type WalkthroughSummary } from '../standards/checklist'
 import type { ChecklistDataset } from '../standards/schema'
 import { getActionGroups, type ActionGroups } from '../action-list'
 import type { CheckResult, FallRecord, HouseholdBrief, Layout, LayoutId, Locale, Project, Recommendation, ResidentProfile, ReviewReceipt, RoomType } from '../types'
 
-export type ReportPlan = { layoutId: LayoutId; label: string; layout: Layout | null; checks: CheckResult[] }
+export type ReportPlan = { layoutId: LayoutId; label: string; layout: Layout | null; checks: CheckResult[]; context: BenchmarkContext }
 export type ReportData = {
   projectId: string
   projectRevision: number
@@ -44,8 +47,8 @@ export function hasHealthData(project: Project): boolean {
 }
 
 export function buildReportData(project: Project, locale: Locale): ReportData {
-  const currentLabel = locale === 'th' ? 'ก่อนปรับปรุง' : 'Current plan'
-  const proposedLabel = project.proposed ? (locale === 'th' ? 'หลังปรับปรุง' : 'Proposed plan') : (locale === 'th' ? 'ยังไม่ได้สร้างแผนเสนอ' : 'Proposed plan not created')
+  const currentLabel = t(locale, 'reportCurrentPlan')
+  const proposedLabel = project.proposed ? t(locale, 'reportProposedPlan') : t(locale, 'reportProposedNotCreated')
   const current = structuredClone(project.current)
   const proposed = project.proposed ? structuredClone(project.proposed) : null
   const province = getProvince(project.household.provinceCode)
@@ -61,8 +64,8 @@ export function buildReportData(project: Project, locale: Locale): ReportData {
     residentNeeds,
     falls: project.report.includeFallHistory ? falls : null,
     plans: {
-      current: { layoutId: 'current', label: currentLabel, layout: current, checks: sortCheckResults(evaluateLayout(project, 'current')) },
-      proposed: { layoutId: 'proposed', label: proposedLabel, layout: proposed, checks: proposed ? sortCheckResults(evaluateLayout(project, 'proposed')) : [] },
+      current: { layoutId: 'current', label: currentLabel, layout: current, checks: sortCheckResults(evaluateLayout(project, 'current')), context: benchmarkContextFor(project, getPrimaryRoom(current)) },
+      proposed: { layoutId: 'proposed', label: proposedLabel, layout: proposed, checks: proposed ? sortCheckResults(evaluateLayout(project, 'proposed')) : [], context: benchmarkContextFor(project, getPrimaryRoom(proposed ?? current)) },
     },
     recommendations: structuredClone(project.recommendations),
     costs: summarizeCosts(project.recommendations),

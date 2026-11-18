@@ -159,6 +159,17 @@ export function useProjectPersistence({ project, enabled, onLoad, onPreferences 
     return true
   }, [])
 
+  // Flush a pending autosave when the page unloads; the debounced save would otherwise lose the last edit on a quick reload/close.
+  useEffect(() => {
+    const flush = () => {
+      if (!hydrated || !enabled || saveState === 'conflict' || saveState === 'corrupt') return
+      if (projectRef.current === lastSavedProjectRef.current || projectRef.current === failedProjectRef.current) return
+      saveNow()
+    }
+    window.addEventListener('pagehide', flush)
+    return () => window.removeEventListener('pagehide', flush)
+  }, [hydrated, enabled, saveState, saveNow])
+
   const replaceFromStorage = useCallback(() => {
     const result = loadProject(window.localStorage)
     if (!result.ok || !result.value) return false

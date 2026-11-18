@@ -5,11 +5,11 @@ import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { createPlanSvg } from '@/lib/planner/exports/plan-svg'
-import { compareCheckResults, getEntityStatuses, summarizeChecks } from '@/lib/planner/checks'
+import { checkViewFromResults, compareCheckResults, summarizeChecks } from '@/lib/planner/checks'
 import { PlanSchedule } from './plan-schedule'
 import { formatBahtAmount } from '@/lib/planner/recommendations'
 import { EFFORT_LABEL_KEYS, EFFORT_TIERS, getActionPriceText, getActionReferenceText, getActionText } from '@/lib/planner/action-list'
-import { t, type MessageKey } from '@/lib/planner/i18n'
+import { confidenceLabel, t, type MessageKey } from '@/lib/planner/i18n'
 import { NEED_LABEL_KEYS } from '@/lib/planner/resident-needs'
 import type { ReportData, ReportPlan } from '@/lib/planner/exports/report-data'
 import { getPrimaryFloor, getPrimaryRoom } from '@/lib/planner/layout-access'
@@ -21,10 +21,7 @@ import { CheckAttentionComparison, CheckSummaryCounts } from './check-summary'
 const ORIGINS = { geometry: 'originGeometry', 'project-target': 'originProjectTarget', 'custom-overlay': 'originCustomOverlay', manual: 'originManual', benchmark: 'originBenchmark', resident: 'originResident' } as const
 
 function svgDataUrl(svg: string) { return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` }
-function baht(value: number, locale: Locale) { return locale === 'th' ? `${formatBahtAmount(value, locale)} บาท` : `THB ${formatBahtAmount(value, locale)}` }
-function confidence(locale: Locale, value: string) {
-  return t(locale, value === 'advisor-verified' ? 'confidenceVerified' : value === 'measured' ? 'confidenceMeasured' : 'confidenceEstimated')
-}
+function baht(value: number, locale: Locale) { const unit = t(locale, 'unitBaht'); return locale === 'th' ? `${formatBahtAmount(value, locale)} ${unit}` : `${unit} ${formatBahtAmount(value, locale)}` }
 
 function entityLabels(plan: ReportPlan, result: CheckResult, locale: Locale): string[] {
   if (!plan.layout) return []
@@ -44,18 +41,17 @@ function entityLabels(plan: ReportPlan, result: CheckResult, locale: Locale): st
   })
 }
 
-function PlanSection({ plan, locale, mobilityAids, showDimensions, showCheckMarks, selectedItemId }: { plan: ReportPlan; locale: Locale; mobilityAids: string[]; showDimensions: boolean; showCheckMarks: boolean; selectedItemId: string | null }) {
+function PlanSection({ plan, locale, showDimensions, showCheckMarks, selectedItemId }: { plan: ReportPlan; locale: Locale; showDimensions: boolean; showCheckMarks: boolean; selectedItemId: string | null }) {
   if (!plan.layout) return <section className="report-plan"><h2>{plan.label}</h2><p>{t(locale, 'reportNoProposal')}</p></section>
   const room = getPrimaryRoom(plan.layout)
-  const entityCheckStatuses = getEntityStatuses(plan.checks)
-  const roomCheckResults = plan.checks.filter((check) => check.entityIds.length === 0)
-  const svg = createPlanSvg(plan.layout, { locale, layoutLabel: plan.label, showOverlays: true, showDimensions, showCheckMarks, checkStatuses: entityCheckStatuses, roomCheckResults, selectedItemId })
-  const context = { roomType: room.type, mobilityAids }
+  const checkView = checkViewFromResults(plan.checks)
+  const svg = createPlanSvg(plan.layout, { locale, layoutLabel: plan.label, showOverlays: true, showDimensions, showCheckMarks, checkView, selectedItemId })
+  const context = plan.context
   const verdictRows = plan.checks.flatMap((check) => check.verdicts.map((verdict) => ({ check, verdict })))
   return <section className="report-plan">
     <h2>{plan.label}</h2>
     <p>{t(locale, 'roomType')}: {t(locale, room.type === 'bathroom' ? 'roomBathroom' : 'roomLiving')}</p>
-    <p>{t(locale, 'reportRoomDimensions')}: {room.shape.width.valueMm} × {room.shape.depth.valueMm} × {room.height.valueMm} mm · {confidence(locale, room.shape.width.confidence)} / {confidence(locale, room.shape.depth.confidence)} / {confidence(locale, room.height.confidence)}</p>
+    <p>{t(locale, 'reportRoomDimensions')}: {room.shape.width.valueMm} × {room.shape.depth.valueMm} × {room.height.valueMm} mm · {confidenceLabel(locale, room.shape.width.confidence)} / {confidenceLabel(locale, room.shape.depth.confidence)} / {confidenceLabel(locale, room.height.confidence)}</p>
     <Image unoptimized width={1200} height={1000} className="report-plan-image" src={svgDataUrl(svg)} alt={`${plan.label}, ${(room.shape.width.valueMm / 1000).toFixed(2)} × ${(room.shape.depth.valueMm / 1000).toFixed(2)} m`} />
     {showCheckMarks && <div className="check-mark-legend" role="img" aria-label={`${t(locale, 'checkMarkerLegendAttention')}; ${t(locale, 'checkMarkerLegendNotEvaluated')}`}><span><i className="report-check-mark-symbol report-check-mark-attention">!</i>{t(locale, 'checkMarkerLegendAttention')}</span><span><i className="report-check-mark-symbol report-check-mark-not-evaluated">?</i>{t(locale, 'checkMarkerLegendNotEvaluated')}</span></div>}
     <PlanSchedule room={room} locale={locale} selectionId={selectedItemId} />
@@ -78,7 +74,7 @@ function PlanSection({ plan, locale, mobilityAids, showDimensions, showCheckMark
     {plan.checks.length ? <ul className="report-check-list">{plan.checks.map((check) => <li key={check.id}>
       <strong>{check.ruleId} · {t(locale, check.status === 'attention' ? 'checkAttention' : check.status === 'clear' ? 'checkClear' : 'checkNotEvaluated')}</strong>
       <p>{t(locale, check.messageKey as MessageKey)}</p>
-      <p>{t(locale, 'checkOrigin')}: {t(locale, ORIGINS[check.evidence.origin])} · {t(locale, 'confidence')}: {confidence(locale, check.evidence.confidence)}</p>
+      <p>{t(locale, 'checkOrigin')}: {t(locale, ORIGINS[check.evidence.origin])} · {t(locale, 'confidence')}: {confidenceLabel(locale, check.evidence.confidence)}</p>
       <p>{t(locale, 'checkLimitation')}: {t(locale, check.evidence.limitationKey as MessageKey)}</p>
     </li>)}</ul> : <p>{t(locale, 'reportNoChecks')}</p>}
   </section>
@@ -213,8 +209,8 @@ export function ReportPreview({ data, locale, pngUrl, showDimensions, showCheckM
             })}</ul></>
             : <p>{t(locale, 'checkSummaryNoChanges')}</p>)}
         </section>
-        <PlanSection plan={data.plans.current} locale={locale} mobilityAids={data.brief.mobilityAids} showDimensions={showDimensions} showCheckMarks={showCheckMarks} selectedItemId={selectedItemId} />
-        <PlanSection plan={data.plans.proposed} locale={locale} mobilityAids={data.brief.mobilityAids} showDimensions={showDimensions} showCheckMarks={showCheckMarks} selectedItemId={selectedItemId} />
+        <PlanSection plan={data.plans.current} locale={locale} showDimensions={showDimensions} showCheckMarks={showCheckMarks} selectedItemId={selectedItemId} />
+        <PlanSection plan={data.plans.proposed} locale={locale} showDimensions={showDimensions} showCheckMarks={showCheckMarks} selectedItemId={selectedItemId} />
         <section className="report-recommendations"><h2>{t(locale, 'recommendations')}</h2>
           {data.recommendations.length ? <ul>{data.recommendations.map((recommendation) => <li key={recommendation.id}><h3>{recommendation.title}</h3><p>{recommendation.reason}</p><p>{recommendation.action}</p><p>{t(locale, 'recommendationStatus')}: {t(locale, `status${recommendation.status[0].toUpperCase()}${recommendation.status.slice(1)}` as 'statusProposed' | 'statusAccepted' | 'statusDeferred' | 'statusCompleted')} · {t(locale, recommendation.layoutId)}</p>{recommendation.advisorNote && <p>{t(locale, 'recommendationAdvisorNote')}: {recommendation.advisorNote}</p>}
             <p>{t(locale, 'costEstimateMaterials')}: {recommendation.materials ? `${baht(recommendation.materials.lowSatang, locale)}–${baht(recommendation.materials.highSatang, locale)} · ${recommendation.materials.sourceNote} · ${recommendation.materials.estimatedAt.slice(0, 10)}` : t(locale, 'unknownCost')}</p>
@@ -230,7 +226,7 @@ export function ReportPreview({ data, locale, pngUrl, showDimensions, showCheckM
           {data.review.receipt && <><p>{t(locale, 'reviewName')}: {data.review.receipt.reviewerName}</p><p>{t(locale, 'reviewRevision')}: {data.review.receipt.projectRevision}</p><p>{t(locale, 'reviewDate')}: {new Intl.DateTimeFormat(locale === 'th' ? 'th-TH' : 'en-US', { dateStyle: 'medium' }).format(new Date(data.review.receipt.reviewedAt))}</p></>}
           <p>{t(locale, 'reviewIdentityNote')}</p>
         </section>
-        {pngUrl ? <section className="report-3d"><h2>{t(locale, 'view3d')}</h2><Image unoptimized width={1200} height={900} src={pngUrl} alt={locale === 'th' ? 'ภาพมุมมองสามมิติของห้อง' : 'Three-dimensional room view'} /></section> : <p className="report-image-note">{t(locale, 'reportNoImage')}</p>}
+        {pngUrl ? <section className="report-3d"><h2>{t(locale, 'view3d')}</h2><Image unoptimized width={1200} height={900} src={pngUrl} alt={t(locale, 'report3dAlt')} /></section> : <p className="report-image-note">{t(locale, 'reportNoImage')}</p>}
         <div className="report-limitations"><p className="report-disclaimer">{data.disclaimer}</p><p>{t(locale, 'checksTitle')}: {t(locale, 'checksDisclaimer')}</p><p>{t(locale, 'checkLimitGeneral')}</p></div>
       </div>
     </DialogContent>

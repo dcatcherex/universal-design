@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getFootprint } from '../../lib/planner/geometry'
 import { buildElevation } from '../../lib/planner/elevation'
 import { getPrimaryRoom } from '../../lib/planner/layout-access'
+import { benchmarkContextFor } from '../../lib/planner/resident-needs'
 import { createElevationSvg } from '../../lib/planner/exports/elevation-svg'
 import { buildReportData } from '../../lib/planner/exports/report-data'
 import { createPlanSvg } from '../../lib/planner/exports/plan-svg'
@@ -11,7 +12,7 @@ import { buildPlanAnnotations, PLAN_SCALE_BAR_LENGTH_MM } from '../../lib/planne
 import { PLAN_PALETTE } from '../../lib/planner/plan-palette'
 import { buildPlanSchedule } from '../../lib/planner/plan-schedule'
 import { createBathroomExampleProject, createExampleProject } from '../../lib/planner/fixtures'
-import { evaluateLayout, getEntityStatuses } from '../../lib/planner/checks'
+import { checkViewFromResults, evaluateLayout } from '../../lib/planner/checks'
 import { createFixture } from '../../lib/planner/fixtures-catalog'
 import { CATALOG } from '../../lib/planner/catalog'
 import type { CheckResult, Layout } from '../../lib/planner/types'
@@ -76,15 +77,14 @@ describe('plan and report exports', () => {
   it('exports check marks with the same attention and not-evaluated semantics as the plan', () => {
     const project = createBathroomExampleProject(now, 'en')
     const results = evaluateLayout(project, 'current')
-    const statuses = getEntityStatuses(results)
+    const checkView = checkViewFromResults(results)
     const room = getPrimaryRoom(project.current)
     const svg = createPlanSvg(project.current, {
       locale: 'en',
       layoutLabel: 'Current plan',
       showOverlays: true,
       showCheckMarks: true,
-      checkStatuses: statuses,
-      roomCheckResults: results.filter((result) => result.entityIds.length === 0),
+      checkView,
     })
 
     expect(svg).toContain('data-opening-id="bathroom-door"')
@@ -100,24 +100,23 @@ describe('plan and report exports', () => {
       evidence: { confidence: 'estimated', origin: 'benchmark', limitationKey: 'checks.toiletLimit' },
     }
     const pendingSvg = createPlanSvg(project.current, {
-      locale: 'en', layoutLabel: 'Current plan', showOverlays: true, checkStatuses: getEntityStatuses([pendingResult]),
+      locale: 'en', layoutLabel: 'Current plan', showOverlays: true, checkView: checkViewFromResults([pendingResult]),
     })
     expect(pendingSvg).toContain('data-check-mark="not-evaluated"')
     expect(pendingSvg).toContain('data-check-entity-id="toilet-1"')
 
     const jar = room.items.find((item) => item.id === 'water-jar-1')!
     jar.center = { xMm: 1500, yMm: 400 }
-    const outsideWetResults = evaluateLayout(project, 'current')
-    const outsideWetStatuses = getEntityStatuses(outsideWetResults)
-    expect(outsideWetStatuses.get(jar.id)?.status).not.toBe('attention')
+    const outsideWetView = checkViewFromResults(evaluateLayout(project, 'current'))
+    expect(outsideWetView.byEntity.get(jar.id)?.status).not.toBe('attention')
     const outsideWetSvg = createPlanSvg(project.current, {
       locale: 'en', layoutLabel: 'Current plan', showOverlays: true,
-      checkStatuses: outsideWetStatuses, roomCheckResults: outsideWetResults.filter((result) => result.entityIds.length === 0),
+      checkView: outsideWetView,
     })
     expect(outsideWetSvg).not.toContain('data-check-entity-id="water-jar-1"')
 
     const hiddenMarks = createPlanSvg(project.current, {
-      locale: 'en', layoutLabel: 'Current plan', showOverlays: true, showCheckMarks: false, checkStatuses: statuses,
+      locale: 'en', layoutLabel: 'Current plan', showOverlays: true, showCheckMarks: false, checkView,
     })
     expect(hiddenMarks).not.toContain('data-check-mark=')
   })
@@ -234,7 +233,7 @@ describe('plan and report exports', () => {
     const room = getPrimaryRoom(project.current)
     const fixture = createFixture('grab-bar-horizontal', 'north', room, 'export-bar', '<script>alert("x")</script>', { offset: 1300 })
     room.fixtures = [fixture]
-    const model = buildElevation(room, 'north', project.resident, fixture.id, { roomType: room.type, mobilityAids: project.household.mobilityAids })
+    const model = buildElevation(room, 'north', project.resident, fixture.id, benchmarkContextFor(project, room))
     const svg = createElevationSvg(model, 'en')
 
     expect(svg).toContain('data-fixture-id="export-bar"')

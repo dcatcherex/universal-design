@@ -391,4 +391,21 @@ check3dPendingLegend: 'เส้นลวด / ?: ยังไม่ได้ป
   reportClauseValue: 'ข้อกำหนดและค่า',
   healthDataWarning: 'ไฟล์นี้มีข้อมูลสุขภาพของผู้อยู่อาศัย (ความต้องการ ขนาดร่างกาย หรือประวัติการหกล้ม) ควรส่งให้เฉพาะผู้ให้คำปรึกษาของคุณเท่านั้น ต้องการดาวน์โหลดหรือไม่',
   'validation.chooserRequired': 'กรอกชื่อผู้เลือกเกณฑ์หลัก',
+
+  // R-E: literals moved out of components and lib modules
+  legendFurniture: 'สิ่งของ',
+  legendRouteCorridor: 'แนวทางเดินตัวอย่าง',
+  arrowMoveHint: 'กดปุ่มลูกศรเพื่อขยับ 10 มม. · Shift + ลูกศร 50 มม.',
+  checksPlanDisclaimer: 'ผลตรวจจากข้อมูลในแผนผัง ไม่ใช่การรับรองความปลอดภัย',
+  checkPlanValue: 'ขนาดที่ใช้ในแบบ',
+  unitBaht: 'บาท',
+  report3dAlt: 'ภาพมุมมองสามมิติของห้อง',
+  localeSwitch: 'EN',
+  inspectorPanelLabel: 'แผงข้อมูล',
+  mobileActionsLabel: 'การทำงานบนมือถือ',
+  diameterNotSet: 'ไม่ระบุเส้นผ่านศูนย์กลาง',
+  widthNotSet: 'ไม่ระบุความกว้าง',
+  reportCurrentPlan: 'ก่อนปรับปรุง',
+  reportProposedPlan: 'หลังปรับปรุง',
+  reportProposedNotCreated: 'ยังไม่ได้สร้างแผนเสนอ',
 } as const

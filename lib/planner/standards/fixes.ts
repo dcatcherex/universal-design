@@ -3,7 +3,11 @@ import { getCatalogEntry, isToilet } from '../catalog'
 import { evaluateLayout } from '../checks'
 import { createFixture, getFixtureEntry } from '../fixtures-catalog'
 import { fixtureFitsWall, getFootprint, wallLengthMm } from '../geometry'
+import { moveEntityInRoom } from '../entity-movement'
+import { t } from '../i18n'
 import { getPrimaryRoom } from '../layout-access'
+import { toiletBackWall, toiletFacing, toiletSideWalls, toiletSpans } from '../toilet-geometry'
+import { benchmarkContextFor } from '../resident-needs'
 import { strictestValue, targetMm, type BenchmarkKey, type BenchmarkValue } from './benchmarks'
 import { getDefaultCosts } from './prices'
 import { fixLibrarySchema, type Fix, type FixLibrary, type PriceList } from './schema'
@@ -112,22 +116,16 @@ export function defaultFixEntity(fix: Fix, result: CheckResult, project: Project
 type Applied = { room: RoomSpace; changedIds: string[]; used: BenchmarkValue | null; usedMm: number | null; linkId: string | null }
 
 function resolveBenchmark(key: BenchmarkKey, room: RoomSpace, project: Project): { value: BenchmarkValue; mm: number } | null {
-  const value = strictestValue(key, { roomType: room.type, mobilityAids: project.household.mobilityAids }, project.benchmarkPolicy?.primary ?? null)
+  const value = strictestValue(key, benchmarkContextFor(project, room), project.benchmarkPolicy?.primary ?? null)
   const mm = value ? targetMm(value) : null
   return value && mm !== null ? { value, mm } : null
 }
 
-/** Where a new grab bar goes for a toilet. Mirrors `findToiletBar` in checks.ts so that an installed bar is the one the check finds. */
+/** Where a new grab bar goes for a toilet, using the same toilet geometry `findToiletBar` checks against. */
 function placeToiletBar(kind: 'grab-bar-horizontal' | 'grab-bar-fold-down', toilet: FurnitureItem, room: RoomSpace, project: Project, heightMm: number, id: string, label: string) {
-  const footprint = getFootprint(toilet)
-  const width = room.shape.width.valueMm, depth = room.shape.depth.valueMm
-  const depthIsY = toilet.rotationDeg === 0 || toilet.rotationDeg === 180
-  const frontPositive = toilet.rotationDeg === 0 || toilet.rotationDeg === 270
-  const along = depthIsY ? { min: footprint.minY, max: footprint.maxY } : { min: footprint.minX, max: footprint.maxX }
-  const across = depthIsY ? { min: footprint.minX, max: footprint.maxX } : { min: footprint.minY, max: footprint.maxY }
-  const sides = depthIsY
-    ? [{ wall: 'west' as const, distance: footprint.minX }, { wall: 'east' as const, distance: width - footprint.maxX }]
-    : [{ wall: 'north' as const, distance: footprint.minY }, { wall: 'south' as const, distance: depth - footprint.maxY }]
+  const { frontPositive } = toiletFacing(toilet)
+  const { along, across } = toiletSpans(toilet)
+  const sides = toiletSideWalls(room, toilet)
   const nearer = sides[0].distance <= sides[1].distance ? sides[0] : sides[1]
 
   if (kind === 'grab-bar-horizontal') {
@@ -140,10 +138,13 @@ function placeToiletBar(kind: 'grab-bar-horizontal' | 'grab-bar-fold-down', toil
     if (start > end) [start, end] = [end, start]
     start = Math.max(0, start)
     end = Math.min(wallLength, end)
-    return createFixture(kind, nearer.wall, room, id, label, { offset: Math.round((start + end) / 2), length: Math.max(10, Math.round(end - start)), referenceHeight: heightMm })
+    const length = Math.max(10, Math.round(end - start))
+    // Rounding the midpoint can push offset + length/2 a fraction past the wall end; clamp on the rounded span.
+    const offset = Math.min(Math.floor(wallLength - length / 2), Math.max(Math.ceil(length / 2), Math.round((start + end) / 2)))
+    return createFixture(kind, nearer.wall, room, id, label, { offset, length, referenceHeight: heightMm })
   }
   // Fold-down: on the wall behind the toilet, on the side away from the nearer side wall.
-  const backWall: Wall = depthIsY ? (frontPositive ? 'north' : 'south') : (frontPositive ? 'west' : 'east')
+  const backWall = toiletBackWall(toilet)
   const gap = resolveBenchmark('grabBar.foldDownGap', room, project)?.mm ?? 200
   const openSide = nearer === sides[0] ? 'max' : 'min'
   const offset = openSide === 'max' ? across.max + gap : across.min - gap
@@ -166,9 +167,9 @@ function applyEffect(fix: Fix, room: RoomSpace, project: Project, params: FixPar
     case 'move-item': {
       if (!item) return missing()
       if (!params.position) return failure('fix-position-required', 'fix.positionRequired', ['position'])
-      item.center = { xMm: Math.round(params.position.xMm), yMm: Math.round(params.position.yMm) }
-      const footprint = getFootprint(item)
-      if (footprint.minX < 0 || footprint.minY < 0 || footprint.maxX > next.shape.width.valueMm || footprint.maxY > next.shape.depth.valueMm) return failure('fix-out-of-bounds', 'fix.outOfBounds', ['position'])
+      const moved = moveEntityInRoom(next, item.id, params.position)
+      if (!moved.ok) return moved.reason === 'not-found' ? missing() : failure('fix-out-of-bounds', 'fix.outOfBounds', ['position'])
+      next.items = moved.room.items
       return done([item.id], item.id)
     }
     case 'remove-item':
@@ -296,7 +297,7 @@ export function previewFix(project: Project, fixId: string, params: FixParams, n
     ...(applied.value.linkId ? { entityId: applied.value.linkId } : {}),
     title: fix.label[locale].slice(0, 160), reason: fix.description[locale], action: fix.label[locale],
     priority: 'next', workType: fix.workType, status: 'proposed',
-    advisorNote: fix.needsProfessional ? (locale === 'th' ? 'ควรปรึกษาสถาปนิกหรือวิศวกรที่มีใบอนุญาตก่อนดำเนินการ' : 'Consult a licensed architect or engineer before doing this work.') : '',
+    advisorNote: fix.needsProfessional ? t(locale, 'fixNeedsProfessional') : '',
     materials: costs.materials, labour: costs.labour,
     fixId: fix.id, ruleId: params.ruleId ?? fix.ruleIds[0],
   }

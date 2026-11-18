@@ -4,9 +4,9 @@ import { buildPlanAnnotations, type PlanAnnotations } from './plan-annotations'
 import { buildPlanDimensions, PLAN_DIMENSION_MARGIN_MM, type PlanDimension } from './plan-dimensions'
 import { buildPlanDrawing, PLAN_WALL_THICKNESS_MM, planSymbol, type OpeningDrawing, type PlanSymbolMark } from './plan-drawing'
 import { buildPlanSchedule, type PlanSchedule } from './plan-schedule'
-import { t } from './i18n'
-import type { EntityCheckStatus } from './checks'
-import type { CheckResult, FurnitureItem, Layout, Locale, Opening, PointMm, RectMm, RouteOverlay, TurningOverlay, Wall, WallFixture } from './types'
+import { confidenceLabel, t } from './i18n'
+import type { EntityCheckStatus, LayoutCheckView } from './checks'
+import type { FurnitureItem, Layout, Locale, Opening, PointMm, RectMm, RouteOverlay, TurningOverlay, Wall, WallFixture } from './types'
 
 export type { PlanSymbolMark } from './plan-drawing'
 
@@ -15,8 +15,7 @@ export type PlanSceneOptions = {
   showOverlays: boolean
   showDimensions?: boolean
   showCheckMarks?: boolean
-  checkStatuses?: ReadonlyMap<string, EntityCheckStatus>
-  roomCheckResults?: CheckResult[]
+  checkView?: LayoutCheckView
   selectedItemId?: string | null
   selectedEntityId?: string | null
   movePreview?: { id: string; xMm: number; yMm: number } | null
@@ -142,7 +141,7 @@ function dimensionDescription(locale: Locale, dimension: PlanDimension): string 
 }
 
 function checkStatus(options: PlanSceneOptions, entityId: string): EntityCheckStatus | undefined {
-  return options.showCheckMarks === false ? undefined : options.checkStatuses?.get(entityId)
+  return options.showCheckMarks === false ? undefined : options.checkView?.byEntity.get(entityId)
 }
 
 /**
@@ -209,7 +208,7 @@ export function buildPlanScene(layout: Layout, options: PlanSceneOptions): PlanS
         styleToken: entity.id === options.selectedEntityId ? 'selection' as const : 'route' as const,
         label: {
           canvas: entity.widthMm === null ? t(options.locale, 'checkNotEvaluated') : `${entity.widthMm} mm`,
-          export: entity.widthMm === null ? (options.locale === 'th' ? 'à¹„à¸¡à¹ˆà¸£à¸°à¸šà¸¸à¸„à¸§à¸²à¸¡à¸à¸§à¹‰à¸²à¸‡' : 'Width not set') : `${entity.widthMm} mm`,
+          export: entity.widthMm === null ? (t(options.locale, 'widthNotSet')) : `${entity.widthMm} mm`,
         },
         selected: entity.id === options.selectedEntityId,
         checkStatus: checkStatus(options, entity.id),
@@ -286,7 +285,7 @@ export function buildPlanScene(layout: Layout, options: PlanSceneOptions): PlanS
       styleToken: item.obstruction === 'rug' ? 'rug' as const : item.finish,
       symbol: planSymbol(item.catalogId),
       checkStatus: status,
-      dimensionsLabel: `${item.width.valueMm} × ${item.depth.valueMm} mm · ${options.locale === 'th' ? (item.width.confidence === 'advisor-verified' ? 'à¸œà¸¹à¹‰à¹ƒà¸«à¹‰à¸„à¸³à¸›à¸£à¸¶à¸à¸©à¸²à¸•à¸£à¸§à¸ˆà¸ªà¸­à¸š' : item.width.confidence === 'measured' ? 'à¸§à¸±à¸”à¹à¸¥à¹‰à¸§' : 'à¸›à¸£à¸°à¸¡à¸²à¸“à¸à¸²à¸£') : item.width.confidence === 'advisor-verified' ? 'Advisor verified' : item.width.confidence === 'measured' ? 'Measured' : 'Estimated'} / ${options.locale === 'th' ? (item.depth.confidence === 'advisor-verified' ? 'à¸œà¸¹à¹‰à¹ƒà¸«à¹‰à¸„à¸³à¸›à¸£à¸¶à¸à¸©à¸²à¸•à¸£à¸§à¸ˆà¸ªà¸­à¸š' : item.depth.confidence === 'measured' ? 'à¸§à¸±à¸”à¹à¸¥à¹‰à¸§' : 'à¸›à¸£à¸°à¸¡à¸²à¸“à¸à¸²à¸£') : item.depth.confidence === 'advisor-verified' ? 'Advisor verified' : item.depth.confidence === 'measured' ? 'Measured' : 'Estimated'}`,
+      dimensionsLabel: `${item.width.valueMm} × ${item.depth.valueMm} mm · ${confidenceLabel(options.locale, item.width.confidence)} / ${confidenceLabel(options.locale, item.depth.confidence)}`,
     }
   }))
 
@@ -322,7 +321,7 @@ export function buildPlanScene(layout: Layout, options: PlanSceneOptions): PlanS
   })))
   primitives.push({ kind: 'annotation', geometry: annotations, styleToken: 'annotation' })
 
-  const roomResults = options.roomCheckResults ?? []
+  const roomResults = options.checkView?.roomLevel ?? []
   return {
     roomId: room.id,
     widthMm,

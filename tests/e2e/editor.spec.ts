@@ -145,6 +145,8 @@ test('persists the dimensions toggle and hides wall chains at 390px', async ({ p
   await toggle.click()
   await expect(plan.locator('[data-dimension-id]')).toHaveCount(0)
   await page.reload()
+  await expect(page.getByRole('button', { name: /ทำโครงการต่อ/ })).toBeVisible()
+  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'เปิดตัวอย่างโครงการ' }).click()
   await expect(page.getByRole('button', { name: 'ขนาด: ซ่อน' })).toHaveAttribute('aria-pressed', 'false')
   await expect(page.locator('svg[aria-label^="แผนผังห้อง"] [data-dimension-id]')).toHaveCount(0)
@@ -386,6 +388,38 @@ test('falls back to the 2D editor and JSON download when WebGL cannot start', as
   await expect(page.getByRole('dialog', { name: 'รายงานการปรับบ้าน' })).toBeVisible()
   await expect(page.getByText(/ไม่มีภาพมุมมอง 3 มิติ/)).toBeVisible()
   await page.getByRole('button', { name: 'ปิดรายงาน' }).click()
+})
+
+test('keeps the plan in view when opening a check marker', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  page.on('dialog', (dialog) => dialog.accept())
+  await page.goto('/')
+  await page.getByRole('button', { name: 'เปิดตัวอย่างห้องน้ำ' }).click()
+  await expect(page.getByRole('heading', { name: /ตัวอย่างห้องน้ำ/ })).toBeVisible()
+  const marksToggle = page.getByRole('button', { name: /เครื่องหมายผลตรวจ:/ })
+  if (await marksToggle.getAttribute('aria-pressed') !== 'true') await marksToggle.click()
+
+  const badge = page.locator('.check-marker-badge').first()
+  await expect(badge).toBeVisible()
+  const resultId = await badge.getAttribute('data-result-id')
+  if (!resultId) throw new Error('Check marker does not reference a result')
+  await badge.click()
+  await expect(page.locator(`[data-check-result-id="${resultId}"]`)).toBeVisible()
+
+  const viewport = await page.evaluate(() => {
+    const stage = document.querySelector('.canvas-stage')?.getBoundingClientRect()
+    return {
+      documentHeight: document.documentElement.scrollHeight,
+      scrollY: window.scrollY,
+      stageBottom: stage?.bottom ?? Number.POSITIVE_INFINITY,
+      stageTop: stage?.top ?? Number.NEGATIVE_INFINITY,
+      viewportHeight: window.innerHeight,
+    }
+  })
+  expect(viewport.scrollY).toBe(0)
+  expect(viewport.documentHeight).toBeLessThanOrEqual(viewport.viewportHeight)
+  expect(viewport.stageTop).toBeGreaterThanOrEqual(0)
+  expect(viewport.stageBottom).toBeLessThanOrEqual(viewport.viewportHeight)
 })
 
 test('explains blocked and not-evaluated geometry and focuses its matching location', async ({ page }) => {

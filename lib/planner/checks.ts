@@ -9,17 +9,17 @@ import {
   rectanglesOverlap,
   sectorIntersectsRect,
 } from './geometry'
+import { previewEntityMove, type MovePosition } from './entity-movement'
 import { getPrimaryRoom, toRoomPoint, withPrimaryRoom } from './layout-access'
-import { getRelevantNeedsForRule, getResidentNeeds } from './resident-needs'
+import { benchmarkContextFor, getRelevantNeedsForRule, getResidentNeeds } from './resident-needs'
+import { findToiletBar } from './toilet-geometry'
 import { BENCHMARKS, hasValue, getBenchmarkValues, strictestValue, type BenchmarkContext, type BenchmarkDataset, type BenchmarkKey } from './standards/benchmarks'
 import { evaluateVerdict, isOnSiteVerified, needsProfessionalCheck, statusFromVerdicts, type Measured } from './standards/verdicts'
 import type {
   BenchmarkId, BenchmarkVerdict, CheckResult, Confidence, Floor, FurnitureItem, LayoutId, Measurement, Opening, PointMm, Project,
-  RectMm, RoomSpace, RouteOverlay, RuleId, WallFixture,
+  RectMm, RoomSpace, RouteOverlay, RuleId,
 } from './types'
 
-/** How far from a toilet's side a wall may be and still count as "beside" it. A model parameter, not a benchmark. */
-export const GRAB_BAR_SEARCH_MM = 500
 /** Results this close to a recorded fall are listed first. A display parameter, not a safety claim. */
 export const NEAR_FALL_MM = 1000
 
@@ -276,74 +276,6 @@ function evaluateDoors(scope: Scope): CheckResult[] {
   return output
 }
 
-type Axis = 'x' | 'y'
-/**
- * Which way a toilet faces in the plan. Rotation 0 has its back to the north (smaller y);
- * each 90° turns it clockwise, so 90 backs onto the east, 180 the south, 270 the west.
- */
-function toiletFacing(item: FurnitureItem): { depthAxis: Axis; frontPositive: boolean } {
-  switch (item.rotationDeg) {
-    case 0: return { depthAxis: 'y', frontPositive: true }
-    case 90: return { depthAxis: 'x', frontPositive: false }
-    case 180: return { depthAxis: 'y', frontPositive: false }
-    case 270: return { depthAxis: 'x', frontPositive: true }
-  }
-}
-
-type BesideBar = { bar: WallFixture; pastFrontMm: number; gapMm: number | null }
-
-/**
- * Finds a grab bar that serves a toilet.
- *
- * A horizontal bar counts when it is on a side wall (a wall parallel to the toilet's depth
- * axis) no more than GRAB_BAR_SEARCH_MM from the toilet's side, and overlaps the toilet along
- * that wall. `pastFrontMm` is how far the bar reaches beyond the bowl's front edge, measured
- * along the wall:
- *
- *        back wall
- *   ┌──────────────┐
- *   │ bowl         │   bar on the side wall
- *   │              │   ══════════════════╗
- *   └── front ─────┘                     ║ pastFrontMm
- *                      ══════════════════╝
- *
- * A fold-down bar counts when it is on the wall behind the toilet, to one side of the bowl.
- * `gapMm` is the distance from its centre line to the nearer edge of the bowl.
- */
-function findToiletBar(room: RoomSpace, toilet: FurnitureItem): BesideBar | null {
-  const footprint = getFootprint(toilet)
-  const { depthAxis, frontPositive } = toiletFacing(toilet)
-  const width = room.shape.width.valueMm, depth = room.shape.depth.valueMm
-  const along = depthAxis === 'y' ? { min: footprint.minY, max: footprint.maxY } : { min: footprint.minX, max: footprint.maxX }
-  const across = depthAxis === 'y' ? { min: footprint.minX, max: footprint.maxX } : { min: footprint.minY, max: footprint.maxY }
-  const sideWalls = depthAxis === 'y'
-    ? [{ wall: 'west' as const, distance: footprint.minX }, { wall: 'east' as const, distance: width - footprint.maxX }]
-    : [{ wall: 'north' as const, distance: footprint.minY }, { wall: 'south' as const, distance: depth - footprint.maxY }]
-  const nearWalls = sideWalls.filter((side) => side.distance <= GRAB_BAR_SEARCH_MM).map((side) => side.wall)
-  const bars = [...room.fixtures].sort((a, b) => a.id.localeCompare(b.id))
-
-  for (const bar of bars) {
-    if (bar.kind !== 'grab-bar-horizontal' || !nearWalls.includes(bar.wall)) continue
-    const start = bar.offset.valueMm - bar.length.valueMm / 2
-    const end = bar.offset.valueMm + bar.length.valueMm / 2
-    if (end <= along.min || start >= along.max) continue
-    return { bar, pastFrontMm: frontPositive ? end - along.max : along.min - start, gapMm: null }
-  }
-
-  const backWall = depthAxis === 'y' ? (frontPositive ? 'north' : 'south') : (frontPositive ? 'west' : 'east')
-  const backDistance = backWall === 'north' ? footprint.minY : backWall === 'south' ? depth - footprint.maxY : backWall === 'west' ? footprint.minX : width - footprint.maxX
-  if (backDistance > GRAB_BAR_SEARCH_MM) return null
-  for (const bar of bars) {
-    if (bar.kind !== 'grab-bar-fold-down' || bar.wall !== backWall) continue
-    const position = bar.offset.valueMm
-    const gap = position < across.min ? across.min - position : position > across.max ? position - across.max : null
-    if (gap === null || gap > GRAB_BAR_SEARCH_MM) continue
-    const reach = bar.length.valueMm - backDistance
-    return { bar, pastFrontMm: reach - (along.max - along.min), gapMm: gap }
-  }
-  return null
-}
-
 function evaluateToilets(scope: Scope): CheckResult[] {
   const { room } = scope
   const output: CheckResult[] = []
@@ -501,7 +433,7 @@ export function evaluateLayout(project: Project, layoutId: LayoutId, dataset: Be
   for (const floor of layout.floors) for (const room of floor.rooms) {
     const scope: Scope = {
       project, layoutId, floor, room, dataset,
-      context: { roomType: room.type, mobilityAids: residentNeeds },
+      context: benchmarkContextFor(project, room),
       primary: project.benchmarkPolicy?.primary ?? null,
     }
     output.push(...tagNearFalls([
@@ -523,24 +455,20 @@ export function evaluateLayout(project: Project, layoutId: LayoutId, dataset: Be
   return output
 }
 
-export type MovePosition = PointMm | { offsetMm: number; heightMm: number }
+export type { MovePosition }
 
-/** Evaluate a moved item or wall fixture on a copy; the input project and history remain untouched. */
+/**
+ * Evaluate a moved item or wall fixture on a copy; the input project and history remain untouched.
+ * The raw position is evaluated even when a commit would reject it, so the move chip can
+ * describe the spot under the pointer; commit-time validation lives in `moveEntity`.
+ */
 export function evaluateWithMove(project: Project, layoutId: LayoutId, entityId: string, position: MovePosition): CheckResult[] {
   const layout = layoutId === 'current' ? project.current : project.proposed
   if (!layout) return []
   const room = getPrimaryRoom(layout)
-  const isItemMove = 'xMm' in position
-  const movedLayout = withPrimaryRoom(layout, (source) => {
-    if ('xMm' in position) {
-      return { ...source, items: source.items.map((item) => item.id === entityId ? { ...item, center: position } : item) }
-    }
-    return { ...source, fixtures: source.fixtures.map((fixture) => fixture.id === entityId
-      ? { ...fixture, offset: { valueMm: position.offsetMm, confidence: 'estimated' }, referenceHeight: { valueMm: position.heightMm, confidence: 'estimated' } }
-      : fixture) }
-  })
-  const exists = isItemMove ? room.items.some((item) => item.id === entityId) : room.fixtures.some((fixture) => fixture.id === entityId)
+  const exists = 'xMm' in position ? room.items.some((item) => item.id === entityId) : room.fixtures.some((fixture) => fixture.id === entityId)
   if (!exists) return evaluateLayout(project, layoutId)
+  const movedLayout = withPrimaryRoom(layout, (source) => previewEntityMove(source, entityId, position))
   const movedProject = layoutId === 'current' ? { ...project, current: movedLayout } : { ...project, proposed: movedLayout }
   return evaluateLayout(movedProject, layoutId)
 }
@@ -642,4 +570,30 @@ export function sortCheckResults(results: CheckResult[]): CheckResult[] {
       || sortRank(a.entry) - sortRank(b.entry)
       || a.index - b.index)
     .map(({ entry }) => entry)
+}
+
+export type LayoutCheckView = {
+  /** Results in display order (see `sortCheckResults`). */
+  results: CheckResult[]
+  /** Aggregated status per entity, for check markers. */
+  byEntity: ReadonlyMap<string, EntityCheckStatus>
+  /** Results that belong to the room itself rather than any entity. */
+  roomLevel: CheckResult[]
+  summary: CheckSummary
+}
+
+/** The one way check results are regrouped for display: sorted, per-entity, room-level and summarized. */
+export function checkViewFromResults(results: CheckResult[]): LayoutCheckView {
+  const sorted = sortCheckResults(results)
+  return {
+    results: sorted,
+    byEntity: getEntityStatuses(sorted),
+    roomLevel: sorted.filter((result) => result.entityIds.length === 0),
+    summary: summarizeChecks(sorted),
+  }
+}
+
+/** Evaluate a layout and regroup the results for display. */
+export function getLayoutCheckView(project: Project, layoutId: LayoutId): LayoutCheckView {
+  return checkViewFromResults(evaluateLayout(project, layoutId))
 }

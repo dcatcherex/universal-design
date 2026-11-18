@@ -7,8 +7,9 @@ import { DISCLAIMER } from '@/lib/planner/exports/report-data'
 import { getFixesForResult, type Fix } from '@/lib/planner/standards/fixes'
 import { getWalkthrough } from '@/lib/planner/standards/checklist'
 import { formatLength } from '@/lib/planner/units'
-import { t, type MessageKey } from '@/lib/planner/i18n'
-import { getNeedPrompts, getResidentNeeds, NEED_LABEL_KEYS, type NeedPrompt } from '@/lib/planner/resident-needs'
+import { confidenceLabel, t, type MessageKey } from '@/lib/planner/i18n'
+import { getNeedPrompts, benchmarkContextFor, NEED_LABEL_KEYS, type NeedPrompt } from '@/lib/planner/resident-needs'
+import { getPrimaryRoom } from '@/lib/planner/layout-access'
 import type { BenchmarkId, CheckResult, Layout, Locale, Project, RoomType } from '@/lib/planner/types'
 import { BENCHMARK_NAME, BenchmarkVerdicts } from './benchmark-verdicts'
 import { CheckAttentionComparison, CheckSummaryCounts, type CheckSummaryFilter } from './check-summary'
@@ -22,11 +23,6 @@ const origins = {
   resident: 'originResident',
 } as const
 
-const confidenceLabels = {
-  estimated: 'confidenceEstimated',
-  measured: 'confidenceMeasured',
-  'advisor-verified': 'confidenceVerified',
-} as const
 
 /** Advisor control for the benchmark that drives each check's overall status. Changing it makes an existing review outdated. */
 export function BenchmarkPolicy({ project, locale, onChange }: { project: Project; locale: Locale; onChange(primary: BenchmarkId | null, chosenBy: string): void }) {
@@ -78,13 +74,13 @@ export function ChecksPanel({ results, locale, project, layout, roomType, editab
     if (filter === 'clear') return result.status === 'clear'
     return result.nearFall
   })
-  const context = { roomType, mobilityAids: getResidentNeeds(project) }
+  const context = benchmarkContextFor(project, getPrimaryRoom(layout))
   const needPrompts = getNeedPrompts(project, layout)
   const walkthroughSummary = getWalkthrough(project.checklist ?? [], roomType).summary
   return <section className="checks-panel" aria-labelledby="checks-panel-title">
     <header className="checks-heading">
       <h2 id="checks-panel-title">{t(locale, 'checksTitle')}</h2>
-      <p>{locale === 'th' ? 'ผลตรวจจากข้อมูลในแผนผัง ไม่ใช่การรับรองความปลอดภัย' : 'Results describe entered plan geometry; they do not certify safety.'}</p>
+      <p>{t(locale, 'checksPlanDisclaimer')}</p>
       <CheckSummaryCounts summary={summary} locale={locale} filter={filter} onFilter={setFilter} />
       <p className="walkthrough-count-line">{t(locale, 'walkthroughSummary')
         .replace('{hazards}', String(walkthroughSummary.hazards))
@@ -115,9 +111,9 @@ export function ChecksPanel({ results, locale, project, layout, roomType, editab
           {resultNeedsProfessionalCheck(result) && <p className="get-checked"><span aria-hidden="true">☞</span> {t(locale, 'getThisChecked')}</p>}
           <dl>
             <div><dt>{t(locale, 'checkOrigin')}</dt><dd>{t(locale, origins[result.evidence.origin])}</dd></div>
-            <div><dt>{t(locale, 'checkConfidence')}</dt><dd>{t(locale, confidenceLabels[result.evidence.confidence])}</dd></div>
-            {result.measuredMm !== undefined && <div><dt>{locale === 'th' ? 'ขนาดที่ใช้ในแบบ' : 'Value used in plan'}</dt><dd>{formatLength(result.measuredMm, 'cm', locale)} {locale === 'th' ? 'ซม.' : 'cm'}</dd></div>}
-            {result.targetMm !== undefined && <div><dt>{t(locale, result.basis === 'resident' ? 'residentValue' : result.basis === 'benchmark' ? 'benchmarkValue' : 'projectTargetValue')}</dt><dd>{formatLength(result.targetMm, 'cm', locale)} {locale === 'th' ? 'ซม.' : 'cm'}</dd></div>}
+            <div><dt>{t(locale, 'checkConfidence')}</dt><dd>{confidenceLabel(locale, result.evidence.confidence)}</dd></div>
+            {result.measuredMm !== undefined && <div><dt>{t(locale, 'checkPlanValue')}</dt><dd>{formatLength(result.measuredMm, 'cm', locale)} {t(locale, 'unitCm')}</dd></div>}
+            {result.targetMm !== undefined && <div><dt>{t(locale, result.basis === 'resident' ? 'residentValue' : result.basis === 'benchmark' ? 'benchmarkValue' : 'projectTargetValue')}</dt><dd>{formatLength(result.targetMm, 'cm', locale)} {t(locale, 'unitCm')}</dd></div>}
             <div className="check-limitation"><dt>{t(locale, 'checkLimitation')}</dt><dd>{t(locale, result.evidence.limitationKey as MessageKey)}</dd></div>
           </dl>
           {fixes.length > 0 && <div className="fix-list" role="group" aria-label={t(locale, 'suggestedFixes')}>

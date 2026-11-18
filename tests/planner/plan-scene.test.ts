@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateLayout, getEntityStatuses } from '../../lib/planner/checks'
+import { getLayoutCheckView } from '../../lib/planner/checks'
 import { createBathroomExampleProject, createExampleProject } from '../../lib/planner/fixtures'
 import { createFixture } from '../../lib/planner/fixtures-catalog'
 import { getPrimaryFloor, getPrimaryRoom } from '../../lib/planner/layout-access'
@@ -16,13 +16,13 @@ const baseOptions = {
 describe('buildPlanScene', () => {
   it('derives item selection, check marks, and clearance dimensions from one scene', () => {
     const project = createBathroomExampleProject(now, 'en')
-    const statuses = getEntityStatuses(evaluateLayout(project, 'current'))
+    const checkView = getLayoutCheckView(project, 'current')
     const scene = buildPlanScene(project.current, {
       ...baseOptions,
       showDimensions: true,
       showCheckMarks: true,
       selectedItemId: 'toilet-1',
-      checkStatuses: statuses,
+      checkView,
     })
 
     const toilet = scene.primitives.find((primitive) => primitive.kind === 'item' && primitive.entity.id === 'toilet-1')
@@ -37,10 +37,10 @@ describe('buildPlanScene', () => {
 
   it('omits check state and dimensions when their options are disabled', () => {
     const project = createBathroomExampleProject(now, 'en')
-    const statuses = getEntityStatuses(evaluateLayout(project, 'current'))
+    const checkView = getLayoutCheckView(project, 'current')
     const scene = buildPlanScene(project.current, {
       ...baseOptions,
-      checkStatuses: statuses,
+      checkView,
     })
 
     const toilet = scene.primitives.find((primitive) => primitive.kind === 'item' && primitive.entity.id === 'toilet-1')
